@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plan Online · 게임 대시보드</title>
+  <link rel="stylesheet" href="/css/common.css" />
+  <style>
+    .hero { padding: 48px 0 28px; }
+    .hero-kicker { color: var(--accent-2); font-weight: 800; letter-spacing: .18em; font-size: 12px; }
+    .hero h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.15; margin: 10px 0 12px; letter-spacing: -0.02em; }
+    .hero p { color: var(--text-2); max-width: 620px; margin: 0; }
+    .stats { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+    .stat { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+    .stat b { display: block; font-size: 18px; }
+    .stat span { font-size: 12px; color: var(--text-3); }
+
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 28px 0 14px; }
+    .section-head h2 { margin: 0; font-size: 18px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; padding-bottom: 60px; }
+    .game { padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 230px; position: relative; overflow: hidden; }
+    .game.live:hover { border-color: #4a2030; }
+    .game .no { font-family: var(--mono); color: var(--text-3); font-size: 12px; }
+    .game h3 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+    .game h3 small { display: block; font-size: 12px; color: var(--text-3); font-weight: 500; letter-spacing: .04em; margin-top: 2px; }
+    .game p { margin: 0; color: var(--text-2); font-size: 14px; flex: 1; }
+    .game .meta { display: flex; gap: 6px; flex-wrap: wrap; }
+    .game .actions { display: flex; gap: 8px; }
+    .game .actions .btn { flex: 1; }
+    .game.soon { border-style: dashed; background: transparent; opacity: .7; }
+    .game.soon h3 { color: var(--text-3); }
+    .game .art { position: absolute; right: -24px; top: -24px; width: 120px; height: 120px; opacity: .12; pointer-events: none; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; }
+    footer { border-top: 1px solid var(--line); padding: 18px 0 30px; color: var(--text-3); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <div class="brand-mark">P</div>
+        <div class="brand-name">PLAN ONLINE<small>데블스 플랜 3 게임 온라인 플레이</small></div>
+      </a>
+    </header>
+
+    <section class="hero">
+      <div class="hero-kicker">GAME DASHBOARD</div>
+      <h1>데블스 플랜 3의 게임을<br />친구들과 온라인으로</h1>
+      <p>방을 만들고 초대 링크를 공유하면 바로 함께 플레이할 수 있습니다. 인원이 부족하면 봇이 빈자리를 채워 줍니다.</p>
+      <div class="stats" id="stats"></div>
+    </section>
+
+    <div class="section-head">
+      <h2>게임 목록</h2>
+      <span class="dim" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+  <footer><div class="wrap">비공식 팬 제작 프로젝트입니다. 게임 규칙만 참고했으며 방송사와 무관합니다.</div></footer>
+
+  <div class="modal-backdrop hidden" id="rulesModal">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div><div class="dim" style="font-size:12px">게임 규칙</div><h2 id="rulesTitle"></h2></div>
+        <button class="btn btn-ghost btn-sm" data-close>닫기</button>
+      </div>
+      <ol class="rules" id="rulesBody"></ol>
+      <div style="margin-top:18px"><a class="btn btn-primary btn-block" id="rulesPlay" href="#">플레이하기</a></div>
+    </div>
+  </div>
+
+  <script src="/js/games.js"></script>
+  <script>
+    const games = window.GAMES;
+    const live = games.filter((g) => g.status === 'live');
+    const grid = document.getElementById('grid');
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    document.getElementById('count').textContent = `플레이 가능 ${live.length} / 전체 ${games.length}`;
+    document.getElementById('stats').innerHTML = [
+      [live.length, '플레이 가능한 게임'],
+      ['최대 6인', '실시간 멀티플레이'],
+      ['봇 지원', '혼자서도 연습 가능'],
+    ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+
+    const revolverArt = `<svg class="art" viewBox="0 0 100 100"><g fill="none" stroke="#fff" stroke-width="3">
+      <circle cx="50" cy="50" r="44"/>${[0,1,2,3,4,5].map(i=>{const a=(i*60-90)*Math.PI/180;return `<circle cx="${50+28*Math.cos(a)}" cy="${50+28*Math.sin(a)}" r="9"/>`}).join('')}
+      <circle cx="50" cy="50" r="6"/></g></svg>`;
+
+    grid.innerHTML = games.map((g, i) => {
+      const no = String(i + 1).padStart(2, '0');
+      if (g.status !== 'live') {
+        return `<article class="card game soon">
+          <div class="top-row"><span class="no">GAME ${no}</span><span class="badge badge-soon">준비 중</span></div>
+          <h3>${esc(g.title)}</h3><p>${esc(g.summary)}</p></article>`;
+      }
+      return `<article class="card game live">
+        ${g.id === 'russian-roulette' ? revolverArt : ''}
+        <div class="top-row"><span class="no">GAME ${no}</span><span class="badge badge-live">● 플레이 가능</span></div>
+        <h3>${esc(g.title)}<small>${esc(g.en || '')}</small></h3>
+        <p>${esc(g.summary)}</p>
+        <div class="meta">
+          <span class="badge">${esc(g.players)}</span><span class="badge">${esc(g.time)}</span>
+          ${(g.tags || []).map((t) => `<span class="badge">${esc(t)}</span>`).join('')}
+        </div>
+        <div class="actions">
+          <button class="btn" data-rules="${g.id}">규칙</button>
+          <a class="btn btn-primary" href="${g.url}">플레이</a>
+        </div>
+      </article>`;
+    }).join('');
+
+    const modal = document.getElementById('rulesModal');
+    grid.addEventListener('click', (e) => {
+      const id = e.target.closest('[data-rules]')?.dataset.rules;
+      if (!id) return;
+      const g = games.find((x) => x.id === id);
+      document.getElementById('rulesTitle').textContent = g.title;
+      document.getElementById('rulesBody').innerHTML = g.rules.map((r) => `<li>${r}</li>`).join('');
+      document.getElementById('rulesPlay').href = g.url;
+      modal.classList.remove('hidden');
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || e.target.closest('[data-close]')) modal.classList.add('hidden');
+    });
+    document.addEventListener('keydown', (e) => e.key === 'Escape' && modal.classList.add('hidden'));
+  </script>
+</body>
+</html>

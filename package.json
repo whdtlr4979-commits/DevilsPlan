@@ -1,0 +1,19 @@
+{
+  "name": "devils-plan-online",
+  "version": "0.1.0",
+  "private": true,
+  "description": "데블스 플랜 3 게임을 온라인으로 함께 플레이하는 웹 게임 모음",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}
