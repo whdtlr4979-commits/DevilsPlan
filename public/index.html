@@ -2,129 +2,110 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Plan Online · 게임 대시보드</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07070a" />
+  <title>Plan Online · 게임 선택</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <link rel="stylesheet" href="css/common.css" />
   <style>
-    .hero { padding: 48px 0 28px; }
-    .hero-kicker { color: var(--accent-2); font-weight: 800; letter-spacing: .18em; font-size: 12px; }
-    .hero h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.15; margin: 10px 0 12px; letter-spacing: -0.02em; }
-    .hero p { color: var(--text-2); max-width: 620px; margin: 0; }
-    .stats { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
-    .stat { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
-    .stat b { display: block; font-size: 18px; }
-    .stat span { font-size: 12px; color: var(--text-3); }
+    .dash { max-width: 1040px; margin: 0 auto; padding: 0 16px calc(32px + var(--safe-b)); }
+    .dash-top { display: flex; align-items: center; justify-content: space-between; padding: calc(14px + env(safe-area-inset-top, 0px)) 0 14px; }
+    .dash-head { margin: 18px 0 18px; }
+    .dash-head .kicker { font-family: var(--display); color: var(--red); letter-spacing: .2em; font-size: 13px; }
+    .dash-head h1 { font-family: var(--display); font-weight: 400; font-size: clamp(34px, 9vw, 52px); line-height: 1.05; margin: 6px 0 0; letter-spacing: .01em; }
+    .dash-head h1 span { color: var(--red); text-shadow: 0 0 28px var(--red-glow); }
 
-    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 28px 0 14px; }
-    .section-head h2 { margin: 0; font-size: 18px; }
+    .games { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 640px) { .games { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 960px) { .games { grid-template-columns: repeat(3, 1fr); } }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; padding-bottom: 60px; }
-    .game { padding: 18px; display: flex; flex-direction: column; gap: 10px; min-height: 230px; position: relative; overflow: hidden; }
-    .game.live:hover { border-color: #4a2030; }
-    .game .no { font-family: var(--mono); color: var(--text-3); font-size: 12px; }
-    .game h3 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
-    .game h3 small { display: block; font-size: 12px; color: var(--text-3); font-weight: 500; letter-spacing: .04em; margin-top: 2px; }
-    .game p { margin: 0; color: var(--text-2); font-size: 14px; flex: 1; }
-    .game .meta { display: flex; gap: 6px; flex-wrap: wrap; }
-    .game .actions { display: flex; gap: 8px; }
-    .game .actions .btn { flex: 1; }
-    .game.soon { border-style: dashed; background: transparent; opacity: .7; }
-    .game.soon h3 { color: var(--text-3); }
-    .game .art { position: absolute; right: -24px; top: -24px; width: 120px; height: 120px; opacity: .12; pointer-events: none; }
-    .top-row { display: flex; justify-content: space-between; align-items: center; }
-    footer { border-top: 1px solid var(--line); padding: 18px 0 30px; color: var(--text-3); font-size: 12px; }
+    .gc {
+      position: relative; overflow: hidden; border-radius: 22px; min-height: 168px;
+      display: flex; flex-direction: column; justify-content: flex-end; padding: 18px;
+      border: 1px solid var(--stroke); isolation: isolate;
+      transition: transform .12s, border-color .2s, box-shadow .2s;
+    }
+    .gc.live {
+      background:
+        radial-gradient(90% 120% at 100% 0%, rgba(255,46,77,.5) 0%, transparent 55%),
+        linear-gradient(160deg, #24070d 0%, #0d0d13 70%);
+      border-color: rgba(255,46,77,.35);
+      box-shadow: 0 20px 50px -20px rgba(255,46,77,.45);
+      min-height: 220px;
+    }
+    .gc.live:active { transform: scale(.985); }
+    @media (hover: hover) { .gc.live:hover { border-color: rgba(255,46,77,.7); transform: translateY(-2px); } }
+    .gc-art { position: absolute; right: -36px; top: -30px; width: 210px; height: 210px; z-index: -1; opacity: .95; }
+    .gc-art .spin { transform-origin: 100px 100px; animation: spin 24s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .gc-no { font-family: var(--mono); font-size: 11px; color: var(--text-3); letter-spacing: .1em; }
+    .gc h2 { font-family: var(--display); font-weight: 400; font-size: 32px; margin: 2px 0 4px; letter-spacing: .01em; line-height: 1.1; }
+    .gc p { margin: 0 0 12px; color: var(--text-2); font-size: 14px; }
+    .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .gc-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+    .gc-play {
+      width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; flex: none;
+      background: linear-gradient(180deg, #ff4560, #e01535); box-shadow: 0 8px 22px -4px var(--red-glow);
+    }
+    .gc-play svg { width: 22px; height: 22px; margin-left: 3px; }
+    .gc.soon { background: repeating-linear-gradient(135deg, rgba(255,255,255,.02) 0 12px, transparent 12px 24px), var(--bg-2); border-style: dashed; color: var(--text-3); align-items: flex-start; justify-content: center; }
+    .gc.soon h2 { font-size: 22px; color: var(--text-3); }
+    .gc.soon .lock { font-size: 22px; margin-bottom: 4px; opacity: .5; }
+
+    .dash-foot { margin-top: 28px; color: var(--text-3); font-size: 12px; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <header class="topbar">
-      <a class="brand" href="./">
-        <div class="brand-mark">P</div>
-        <div class="brand-name">PLAN ONLINE<small>데블스 플랜 3 게임 온라인 플레이</small></div>
-      </a>
+  <div class="dash">
+    <header class="dash-top">
+      <a class="logo" href="./"><span class="logo-mark">P</span>PLAN<b>ONLINE</b></a>
     </header>
 
-    <section class="hero">
-      <div class="hero-kicker">GAME DASHBOARD</div>
-      <h1>데블스 플랜 3의 게임을<br />친구들과 온라인으로</h1>
-      <p>방을 만들고 초대 링크를 공유하면 바로 함께 플레이할 수 있습니다. 인원이 부족하면 봇이 빈자리를 채워 줍니다.</p>
-      <div class="stats" id="stats"></div>
-    </section>
-
-    <div class="section-head">
-      <h2>게임 목록</h2>
-      <span class="dim" id="count"></span>
+    <div class="dash-head">
+      <div class="kicker">SELECT GAME</div>
+      <h1>오늘의 <span>게임</span>을<br />골라라</h1>
     </div>
-    <div class="grid" id="grid"></div>
-  </div>
-  <footer><div class="wrap">비공식 팬 제작 프로젝트입니다. 게임 규칙만 참고했으며 방송사와 무관합니다.</div></footer>
 
-  <div class="modal-backdrop hidden" id="rulesModal">
-    <div class="modal" role="dialog" aria-modal="true">
-      <div class="modal-head">
-        <div><div class="dim" style="font-size:12px">게임 규칙</div><h2 id="rulesTitle"></h2></div>
-        <button class="btn btn-ghost btn-sm" data-close>닫기</button>
-      </div>
-      <ol class="rules" id="rulesBody"></ol>
-      <div style="margin-top:18px"><a class="btn btn-primary btn-block" id="rulesPlay" href="#">플레이하기</a></div>
-    </div>
+    <div class="games" id="games"></div>
+    <div class="dash-foot">비공식 팬 프로젝트 · 데블스 플랜 3 게임 룰 기반</div>
   </div>
 
   <script src="js/games.js"></script>
   <script>
-    const games = window.GAMES;
-    const live = games.filter((g) => g.status === 'live');
-    const grid = document.getElementById('grid');
-    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const art = `<svg class="gc-art" viewBox="0 0 200 200" aria-hidden="true">
+      <defs><radialGradient id="cy" cx="40%" cy="35%"><stop offset="0" stop-color="#4a4a58"/><stop offset="1" stop-color="#1c1c24"/></radialGradient></defs>
+      <g class="spin">
+        <circle cx="100" cy="100" r="86" fill="url(#cy)" stroke="#5c5c6c" stroke-width="3"/>
+        ${[0, 1, 2, 3, 4, 5].map((i) => {
+          const a = ((i * 60 - 90) * Math.PI) / 180, x = 100 + 52 * Math.cos(a), y = 100 + 52 * Math.sin(a);
+          const live = i === 1 || i === 4;
+          return `<circle cx="${x}" cy="${y}" r="20" fill="${live ? '#ff2e4d' : '#0b0b10'}" stroke="${live ? '#ff8a9a' : '#3a3a48'}" stroke-width="3"/>` +
+            (live ? `<circle cx="${x}" cy="${y}" r="8" fill="#ffc542"/>` : '');
+        }).join('')}
+        <circle cx="100" cy="100" r="12" fill="#0b0b10" stroke="#3a3a48" stroke-width="3"/>
+      </g></svg>`;
+    const play = '<svg viewBox="0 0 24 24" fill="#fff"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
 
-    document.getElementById('count').textContent = `플레이 가능 ${live.length} / 전체 ${games.length}`;
-    document.getElementById('stats').innerHTML = [
-      [live.length, '플레이 가능한 게임'],
-      ['최대 6인', '실시간 멀티플레이'],
-      ['봇 지원', '혼자서도 연습 가능'],
-    ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
-
-    const revolverArt = `<svg class="art" viewBox="0 0 100 100"><g fill="none" stroke="#fff" stroke-width="3">
-      <circle cx="50" cy="50" r="44"/>${[0,1,2,3,4,5].map(i=>{const a=(i*60-90)*Math.PI/180;return `<circle cx="${50+28*Math.cos(a)}" cy="${50+28*Math.sin(a)}" r="9"/>`}).join('')}
-      <circle cx="50" cy="50" r="6"/></g></svg>`;
-
-    grid.innerHTML = games.map((g, i) => {
-      const no = String(i + 1).padStart(2, '0');
+    document.getElementById('games').innerHTML = window.GAMES.map((g, i) => {
+      const no = `GAME ${String(i + 1).padStart(2, '0')}`;
       if (g.status !== 'live') {
-        return `<article class="card game soon">
-          <div class="top-row"><span class="no">GAME ${no}</span><span class="badge badge-soon">준비 중</span></div>
-          <h3>${esc(g.title)}</h3><p>${esc(g.summary)}</p></article>`;
+        return `<div class="gc soon"><div class="lock">🔒</div><div class="gc-no">${no}</div><h2>${esc(g.title)}</h2></div>`;
       }
-      return `<article class="card game live">
-        ${g.id === 'russian-roulette' ? revolverArt : ''}
-        <div class="top-row"><span class="no">GAME ${no}</span><span class="badge badge-live">● 플레이 가능</span></div>
-        <h3>${esc(g.title)}<small>${esc(g.en || '')}</small></h3>
+      return `<a class="gc live" href="${g.url}">
+        ${g.id === 'russian-roulette' ? art : ''}
+        <div class="gc-no">${no}</div>
+        <h2>${esc(g.title)}</h2>
         <p>${esc(g.summary)}</p>
-        <div class="meta">
-          <span class="badge">${esc(g.players)}</span><span class="badge">${esc(g.time)}</span>
-          ${(g.tags || []).map((t) => `<span class="badge">${esc(t)}</span>`).join('')}
+        <div class="gc-foot">
+          <div class="gc-meta"><span class="chip">👥 ${esc(g.players)}</span><span class="chip">⏱ ${esc(g.time)}</span>${(g.tags || []).map((t) => `<span class="chip chip-red">${esc(t)}</span>`).join('')}</div>
+          <span class="gc-play">${play}</span>
         </div>
-        <div class="actions">
-          <button class="btn" data-rules="${g.id}">규칙</button>
-          <a class="btn btn-primary" href="${g.url}">플레이</a>
-        </div>
-      </article>`;
+      </a>`;
     }).join('');
-
-    const modal = document.getElementById('rulesModal');
-    grid.addEventListener('click', (e) => {
-      const id = e.target.closest('[data-rules]')?.dataset.rules;
-      if (!id) return;
-      const g = games.find((x) => x.id === id);
-      document.getElementById('rulesTitle').textContent = g.title;
-      document.getElementById('rulesBody').innerHTML = g.rules.map((r) => `<li>${r}</li>`).join('');
-      document.getElementById('rulesPlay').href = g.url;
-      modal.classList.remove('hidden');
-    });
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal || e.target.closest('[data-close]')) modal.classList.add('hidden');
-    });
-    document.addEventListener('keydown', (e) => e.key === 'Escape' && modal.classList.add('hidden'));
   </script>
 </body>
 </html>

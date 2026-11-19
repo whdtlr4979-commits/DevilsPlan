@@ -49,16 +49,50 @@ test('공개 조사는 1크레딧, 결과가 모두에게 보인다', () => {
   assert.strictEqual(v.knowledge[0].loaded, true);
 });
 
-test('비공개 조사는 2크레딧, 본인만 결과를 본다', () => {
+test('비공개 조사는 2크레딧, 본인만 결과를 보고 다른 사람에겐 약실조차 숨겨진다', () => {
   const g = fixedGame([false, true, false, false, true, false]);
   const p = g.seats[0];
   assert.ok(E.applyAction(g, p, { type: 'privateCheck', pair: 1 }).ok);
   assert.strictEqual(g.players[p].credits, 14);
   const mine = E.viewFor(g, p).events.find((e) => e.type === 'privateCheck');
   assert.deepStrictEqual(mine.results, [true, false]);
-  const theirs = E.viewFor(g, g.seats[1]).events.find((e) => e.type === 'privateCheck');
-  assert.strictEqual(theirs.results, undefined);
-  assert.strictEqual(E.viewFor(g, g.seats[1]).knowledge[1], null);
+  const v = E.viewFor(g, g.seats[1]);
+  assert.strictEqual(v.events.find((e) => e.type === 'privateCheck'), undefined);
+  const theirs = v.events.find((e) => e.type === 'private');
+  assert.deepStrictEqual(Object.keys(theirs).sort(), ['by', 'mine', 'round', 'turn', 'type']);
+  assert.strictEqual(v.knowledge[1], null);
+});
+
+test('비공개 조사 / 조작 제출 / 조작 실행 / 패스는 다른 사람에게 구별되지 않는다', () => {
+  const g = fixedGame([true, false, false, false, false, true]);
+  g.players[g.seats[0]].manip = 5;
+  g.players[g.seats[2]].credits = 0;
+  E.applyAction(g, g.seats[0], { type: 'manip', amount: 1, pair: 2 }); // 조작 실행
+  E.applyAction(g, g.seats[1], { type: 'privateCheck', pair: 0 });
+  assert.deepStrictEqual(E.availableActions(g, g.seats[2]), ['pass']);
+  assert.strictEqual(E.applyAction(g, g.seats[3], { type: 'pass' }).ok, false);
+  assert.ok(E.applyAction(g, g.seats[2], { type: 'pass' }).ok);
+  const v = E.viewFor(g, g.seats[4]);
+  const acts = v.events.filter((e) => !['start', 'roundStart'].includes(e.type));
+  assert.deepStrictEqual(acts.map((e) => e.type), ['private', 'private', 'private']);
+  acts.forEach((e) => assert.deepStrictEqual(Object.keys(e).sort(), ['by', 'mine', 'round', 'turn', 'type']));
+  // 크레딧 소진 여부도 숨김
+  assert.strictEqual(v.seats[2].out, null);
+  assert.strictEqual(v.emptyCount, null);
+  // 패스는 크레딧이 0이어도 차례를 소모한다
+  assert.strictEqual(E.currentSeat(g), 3);
+});
+
+test('게임이 끝나면 모든 기록이 공개된다', () => {
+  const g = fixedGame([false, false, true, false, true, false], 3);
+  g.players[g.seats[1]].credits = 0;
+  g.players[g.seats[2]].credits = 0;
+  g.players[g.seats[0]].credits = 2;
+  E.applyAction(g, g.seats[0], { type: 'privateCheck', pair: 4 });
+  const v = E.viewFor(g, g.seats[5]);
+  assert.strictEqual(v.phase, 'ended');
+  assert.deepStrictEqual(v.events.find((e) => e.type === 'privateCheck').results, [true, false]);
+  assert.strictEqual(v.emptyCount, 3);
 });
 
 test('회전은 3/4 크레딧, 총구가 시계방향으로 이동', () => {
@@ -94,11 +128,9 @@ test('조작: 1~3씩 비공개 제출, 6 이상이면 조작권, 초과분 소�
   assert.deepStrictEqual(g.chambers, [false, true, false, false, false, true]);
   assert.strictEqual(g.players[p].manip, 0);
   assert.strictEqual(g.players[p].credits, 10);
-  // 다른 사람에게는 금액/위치가 숨겨진다
+  // 다른 사람에게는 조작 자체가 보이지 않는다
   const v = E.viewFor(g, g.seats[2]);
-  const subs = v.events.filter((e) => e.type === 'manipSubmit');
-  subs.forEach((e) => assert.strictEqual(e.amount, undefined));
-  assert.strictEqual(v.events.find((e) => e.type === 'manip').pair, undefined);
+  assert.strictEqual(v.events.filter((e) => e.type === 'manipSubmit' || e.type === 'manip').length, 0);
   // 본인 지식은 스왑 반영
   const mine = E.viewFor(g, p);
   assert.strictEqual(mine.events.find((e) => e.type === 'manip').pair, 0);
@@ -114,7 +146,7 @@ test('초과 크레딧 소멸', () => {
   assert.strictEqual(g.events.find((e) => e.type === 'manip').wasted, 2);
 });
 
-test('크레딧 0인 플레이어는 자동 패스, 3명 소진 시 종료 및 격발', () => {
+test('3명 소진 시 즉시 종료 및 격발', () => {
   const g = fixedGame([false, false, true, false, true, false], 3);
   g.players[g.seats[1]].credits = 0;
   g.players[g.seats[2]].credits = 0;
@@ -126,12 +158,13 @@ test('크레딧 0인 플레이어는 자동 패스, 3명 소진 시 종료 및 �
   assert.strictEqual(g.result.shots.length, 5);
 });
 
-test('자동 패스', () => {
+test('크레딧 0인 플레이어도 차례를 받아 패스한다', () => {
   const g = fixedGame([true, true, false, false, false, false]);
   g.players[g.seats[1]].credits = 0;
   assert.ok(E.applyAction(g, g.seats[0], { type: 'publicCheck', pair: 0 }).ok);
+  assert.strictEqual(E.currentSeat(g), 1);
+  assert.ok(E.applyAction(g, g.seats[1], { type: 'pass' }).ok);
   assert.strictEqual(E.currentSeat(g), 2);
-  assert.ok(g.events.some((e) => e.type === 'pass' && e.by === g.seats[1]));
 });
 
 test('라운드마다 선 플레이어가 시계방향으로 이동', () => {
@@ -141,7 +174,7 @@ test('라운드마다 선 플레이어가 시계방향으로 이동', () => {
   assert.strictEqual(E.currentSeat(g), 1);
 });
 
-test('다른 사람이 조작하면 내 정보는 stale 처리', () => {
+test('다른 사람의 비공개 행동 이후 내 정보는 stale 처리', () => {
   const g = fixedGame([true, true, false, false, false, false]);
   E.applyAction(g, g.seats[0], { type: 'publicCheck', pair: 0 });
   g.players[g.seats[1]].manip = 3;
@@ -149,6 +182,15 @@ test('다른 사람이 조작하면 내 정보는 stale 처리', () => {
   const k = E.viewFor(g, g.seats[0]).knowledge;
   assert.strictEqual(k[0].stale, true);
   assert.strictEqual(E.viewFor(g, g.seats[1]).knowledge[0].stale, false);
+});
+
+test('봇은 숨겨진 정보를 보지 않는다', () => {
+  const g = fixedGame([true, false, false, false, false, true]);
+  E.applyAction(g, g.seats[0], { type: 'privateCheck', pair: 5 });
+  const prob = bot.belief(g, g.seats[3]);
+  prob.forEach((p) => assert.ok(Math.abs(p - 1 / 3) < 1e-9)); // 아무것도 모름
+  const own = bot.belief(g, g.seats[0]);
+  assert.ok(Math.abs(own[0] - 1) < 1e-9 && Math.abs(own[5] - 1) < 1e-9);
 });
 
 test('봇 믿음: 공개 정보와 일치', () => {

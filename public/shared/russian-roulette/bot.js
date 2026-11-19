@@ -1,11 +1,11 @@
 /**
  * 러시안 룰렛 봇 AI
  *
- * 봇은 자신이 볼 수 있는 정보(공개 조사, 자신의 비공개 조사, 자신의 조작)만으로
+ * 봇은 사람과 똑같이 자기 시점의 정보(engine.eventFor)만 사용해
  * 총알 배치 15가지(6C2)에 대한 확률 분포를 추론한다.
- *  - 다른 플레이어의 조작: 어떤 인접 쌍이 바뀌었는지 모르므로 6가지 경우를 평균낸다.
+ *  - 다른 플레이어의 '비공개 행동'은 조작이었을 수도 있으므로,
+ *    확률 MANIP_PRIOR 로 6가지 인접 교환 중 하나가 일어났다고 보고 섞는다.
  */
-
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine'));
   else root.RRBot = factory(root.RREngine);
@@ -43,10 +43,21 @@ function applySwap(m, pair) {
   return out;
 }
 
+const MANIP_PRIOR = 0.15;
+
+function mix(a, b, wb) {
+  const out = new Map();
+  a.forEach((w, k) => out.set(k, (out.get(k) || 0) + w * (1 - wb)));
+  b.forEach((w, k) => out.set(k, (out.get(k) || 0) + w * wb));
+  return out;
+}
+
 function belief(state, botId) {
   let m = uniform();
-  for (const ev of state.events) {
-    if (ev.type === 'publicCheck' || (ev.type === 'privateCheck' && ev.by === botId)) {
+  for (const raw of state.events) {
+    const ev = E.eventFor(raw, botId, false);
+    if (!ev) continue;
+    if (ev.type === 'publicCheck' || (ev.type === 'privateCheck' && ev.mine)) {
       const chs = pairChambers(ev.pair);
       m.forEach((w, k) => {
         const set = k.split(',').map(Number);
@@ -54,16 +65,14 @@ function belief(state, botId) {
         if (!ok) m.set(k, 0);
       });
       m = normalize(m);
-    } else if (ev.type === 'manip') {
-      if (ev.by === botId) {
-        m = applySwap(m, ev.pair);
-      } else {
-        const mixed = new Map();
-        for (let p = 0; p < CHAMBERS; p++) {
-          applySwap(m, p).forEach((w, k) => mixed.set(k, (mixed.get(k) || 0) + w / CHAMBERS));
-        }
-        m = normalize(mixed);
+    } else if (ev.type === 'manip' && ev.mine) {
+      m = applySwap(m, ev.pair);
+    } else if (ev.type === 'private') {
+      const swapped = new Map();
+      for (let p = 0; p < CHAMBERS; p++) {
+        applySwap(m, p).forEach((w, k) => swapped.set(k, (swapped.get(k) || 0) + w / CHAMBERS));
       }
+      m = normalize(mix(m, swapped, MANIP_PRIOR));
     }
   }
   const prob = Array(CHAMBERS).fill(0);
@@ -118,6 +127,7 @@ function bestSwapFor(myCh, prob, rng) {
 function decide(state, botId, rng = Math.random) {
   const me = state.players[botId];
   const C = me.credits;
+  if (C === 0) return { type: 'pass' };
   const prob = belief(state, botId);
   const chAt = (r) => mod(me.seat - state.aim - r, CHAMBERS);
   const myCh = chAt(0);
