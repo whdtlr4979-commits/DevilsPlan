@@ -14,8 +14,9 @@
   const MAX_PLAYERS = engine.SEATS;
   const BOT_DELAY_MS = 1500;
   const DISCONNECTED_DELAY_MS = 8000; // 접속이 끊긴 플레이어는 이 시간 후 봇이 대신 진행
+  const PASS_DELAY_MS = [1800, 4200]; // 크레딧 0 → 자동 패스. 생각하는 척 무작위로 기다려 크레딧 소진을 숨긴다
   const CHAT_LIMIT = 60;
-  const BOT_NAMES = ['봇 알파', '봇 브라보', '봇 찰리', '봇 델타', '봇 에코', '봇 폭스'];
+  const BOT_NAMES = ['알파봇', '베타봇', '감마봇', '델타봇', '제타봇', '오메가'];
   const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   const webcrypto =
@@ -67,6 +68,7 @@
       this.hostIsServer = !!o.hostIsServer;
       this.botDelay = o.botDelay ?? BOT_DELAY_MS;
       this.disconnectDelay = o.disconnectDelay ?? DISCONNECTED_DELAY_MS;
+      this.passDelay = o.passDelay ?? PASS_DELAY_MS;
       this.hostId = null;
       this.players = [];
       this.game = null;
@@ -135,7 +137,16 @@
       if (!p) return;
       if (p.isBot || !p.connected) {
         this.timer = setTimeout(() => this.autoPlay(pid), p.isBot ? this.botDelay : this.disconnectDelay);
+      } else if (g.players[pid].credits === 0) {
+        const [lo, hi] = Array.isArray(this.passDelay) ? this.passDelay : [this.passDelay, this.passDelay];
+        this.timer = setTimeout(() => this.autoPass(pid), lo + Math.random() * (hi - lo));
       }
+    }
+
+    autoPass(pid) {
+      const g = this.game;
+      if (this.closed || !g || g.phase !== 'playing' || engine.currentPlayerId(g) !== pid) return;
+      if (engine.applyAction(g, pid, { type: 'pass' }).ok) this.changed();
     }
 
     autoPlay(pid) {
@@ -203,7 +214,7 @@
 
     addBotPlayer() {
       const used = new Set(this.players.map((p) => p.name));
-      const name = BOT_NAMES.find((b) => !used.has(b)) || `봇 ${this.players.length + 1}`;
+      const name = BOT_NAMES.find((b) => !used.has(b)) || `봇${this.players.length + 1}`;
       this.players.push({ id: newId(), name, isBot: true, connected: true });
     }
 

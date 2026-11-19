@@ -7,6 +7,12 @@
  *    → 좌석 s 의 플레이어에게 걸리는 약실 = (s - aim) mod 6
  *  - 인접 약실 쌍(pair) i : 약실 i 와 약실 (i+1) mod 6
  *  - 총구 회전: aim 이 시계 방향(좌석 번호 증가 방향)으로 이동
+ *
+ * 정보 공개 규칙
+ *  - 공개 조사 / 회전 : 누가 무엇을 했는지 전체 공개
+ *  - 비공개 조사 / 조작 / 패스 : 다른 사람에게는 모두 똑같이 '비공개 행동'으로만 발표
+ *    (어느 약실을 봤는지, 얼마를 냈는지, 조작이 일어났는지, 크레딧이 바닥났는지 알 수 없다)
+ *  - 게임이 끝나면 모든 기록이 공개된다
  */
 
 (function (root, factory) {
@@ -116,6 +122,7 @@ function availableActions(state, playerId) {
   const p = state.players[playerId];
   if (!p || state.phase !== 'playing' || currentPlayerId(state) !== playerId) return [];
   const c = p.credits;
+  if (c === 0) return ['pass'];
   const list = [];
   if (c >= COST.publicCheck) list.push('publicCheck');
   if (c >= COST.privateCheck) list.push('privateCheck');
@@ -132,6 +139,7 @@ function availableActions(state, playerId) {
  *  { type:'privateCheck', pair }
  *  { type:'rotate', steps: 1|2 }
  *  { type:'manip', amount: 1~3, pair? }  // 누적 6 이상 도달 시 pair 필수
+ *  { type:'pass' }                       // 크레딧이 0일 때만 (자동)
  * @returns {{ok:true} | {ok:false, error:string}}
  */
 function applyAction(state, playerId, action) {
@@ -183,10 +191,14 @@ function applyAction(state, playerId, action) {
       }
       break;
     }
+    case 'pass': {
+      if (p.credits !== 0) return fail('크레딧이 남아 있으면 패스할 수 없습니다.');
+      pushEvent(state, { type: 'pass', by: playerId });
+      break;
+    }
     default:
       return fail('알 수 없는 행동입니다.');
   }
-
   state.turn += 1;
   if (emptyCount(state) >= EMPTY_PLAYERS_TO_END) {
     finish(state);
@@ -200,24 +212,19 @@ function fail(error) {
   return { ok: false, error };
 }
 
+// 크레딧이 0인 플레이어도 차례를 받는다. (패스가 '비공개 행동'으로 발표되어야 크레딧 소진 여부가 숨겨진다)
 function advance(state) {
-  // 최대 한 바퀴 반 정도만 돌면 반드시 크레딧 보유자가 나온다 (종료조건이 3명이므로)
-  for (let guard = 0; guard < SEATS * 2; guard++) {
-    state.offset += 1;
-    if (state.offset >= SEATS) {
-      state.round += 1;
-      state.firstSeat = mod(state.firstSeat + 1, SEATS);
-      state.offset = 0;
-      pushEvent(state, {
-        type: 'roundStart',
-        round: state.round,
-        firstSeat: state.firstSeat,
-        by: state.seats[state.firstSeat],
-      });
-    }
-    const pid = state.seats[currentSeat(state)];
-    if (state.players[pid].credits > 0) return;
-    pushEvent(state, { type: 'pass', by: pid, auto: true });
+  state.offset += 1;
+  if (state.offset >= SEATS) {
+    state.round += 1;
+    state.firstSeat = mod(state.firstSeat + 1, SEATS);
+    state.offset = 0;
+    pushEvent(state, {
+      type: 'roundStart',
+      round: state.round,
+      firstSeat: state.firstSeat,
+      by: state.seats[state.firstSeat],
+    });
   }
 }
 
@@ -244,23 +251,24 @@ function finish(state) {
 /* 정보 은닉: 플레이어별 시점                                          */
 /* ------------------------------------------------------------------ */
 
-function eventFor(ev, viewerId) {
+const PRIVATE_TYPES = new Set(['privateCheck', 'manipSubmit', 'pass']);
+
+/** 다른 사람의 비공개 조사 / 조작 / 패스는 '비공개 행동'으로 통일. 조작 실행 자체는 보이지 않는다. */
+function eventFor(ev, viewerId, revealAll) {
   const mine = ev.by === viewerId;
-  switch (ev.type) {
-    case 'privateCheck':
-      return mine ? { ...ev, mine } : { ...ev, results: undefined, mine };
-    case 'manipSubmit':
-      return mine ? { ...ev, mine } : { type: ev.type, by: ev.by, turn: ev.turn, round: ev.round, mine };
-    case 'manip':
-      return mine ? { ...ev, mine } : { type: ev.type, by: ev.by, turn: ev.turn, round: ev.round, mine };
-    default:
-      return { ...ev, mine };
-  }
+  if (revealAll || mine) return { ...ev, mine };
+  if (PRIVATE_TYPES.has(ev.type)) return { type: 'private', by: ev.by, turn: ev.turn, round: ev.round, mine };
+  if (ev.type === 'manip') return null;
+  return { ...ev, mine };
+}
+
+function isPrivateByOther(ev, viewerId) {
+  return PRIVATE_TYPES.has(ev.type) && ev.by !== viewerId;
 }
 
 /**
  * 해당 플레이어가 알고 있는 약실 정보.
- * 다른 사람이 조작하면(어떤 약실인지 모르므로) 기존 정보는 모두 '오래됨(stale)'으로 표시.
+ * 그 뒤에 다른 사람의 비공개 행동이 있었다면(조작이었을 수도 있으므로) '불확실(stale)'로 표시.
  * 내가 조작하면 내 정보도 같이 바꿔준다.
  */
 function knowledgeFor(state, viewerId) {
@@ -275,13 +283,11 @@ function knowledgeFor(state, viewerId) {
           stale: false,
         };
       });
-    } else if (ev.type === 'manip') {
-      if (ev.by === viewerId) {
-        const [a, b] = pairChambers(ev.pair);
-        [know[a], know[b]] = [know[b], know[a]];
-      } else {
-        know.forEach((k) => k && (k.stale = true));
-      }
+    } else if (ev.type === 'manip' && ev.by === viewerId) {
+      const [a, b] = pairChambers(ev.pair);
+      [know[a], know[b]] = [know[b], know[a]];
+    } else if (isPrivateByOther(ev, viewerId)) {
+      know.forEach((k) => k && (k.stale = true));
     }
   }
   return know;
@@ -298,7 +304,7 @@ function viewFor(state, viewerId) {
         seat,
         id,
         name: p.name,
-        out: p.credits === 0,
+        out: ended || id === viewerId ? p.credits === 0 : null,
         credits: ended || id === viewerId ? p.credits : null,
       };
     }),
@@ -311,8 +317,8 @@ function viewFor(state, viewerId) {
     currentSeat: state.phase === 'playing' ? currentSeat(state) : null,
     currentPlayerId: currentPlayerId(state),
     turn: state.turn,
-    emptyCount: emptyCount(state),
-    events: state.events.map((ev) => eventFor(ev, viewerId)),
+    emptyCount: ended ? emptyCount(state) : null,
+    events: state.events.map((ev) => eventFor(ev, viewerId, ended)).filter(Boolean),
     knowledge: me ? knowledgeFor(state, viewerId) : Array(CHAMBERS).fill(null),
     actions: availableActions(state, viewerId),
     result: ended ? state.result : null,
@@ -348,6 +354,7 @@ return {
   currentSeat,
   emptyCount,
   viewFor,
+  eventFor,
   knowledgeFor,
 };
 });

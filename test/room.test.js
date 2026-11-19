@@ -7,7 +7,7 @@ const { Room } = require('../public/shared/russian-roulette/room');
 function setup(opts = {}) {
   const inbox = {}; // clientId -> [{type, data}]
   const send = (cid, type, data) => (inbox[cid] = inbox[cid] || []).push({ type, data });
-  const room = new Room({ code: 'TEST', send, botDelay: 5, disconnectDelay: 5, ...opts });
+  const room = new Room({ code: 'TEST', send, botDelay: 5, disconnectDelay: 5, passDelay: 5, ...opts });
   const last = (cid, type = 'room') => [...(inbox[cid] || [])].reverse().find((m) => m.type === type);
   return { room, inbox, last };
 }
@@ -80,7 +80,7 @@ test('저장 / 복원 후 이어서 진행', async () => {
   room.close();
 
   const send = (cid, type, data) => (inbox[cid] = inbox[cid] || []).push({ type, data });
-  const restored = Room.restore(saved, { send, botDelay: 1, disconnectDelay: 1 });
+  const restored = Room.restore(saved, { send, botDelay: 1, disconnectDelay: 1, passDelay: 1 });
   assert.ok(restored.join('h2', { token }).ok);
   assert.strictEqual(restored.game.phase, 'playing');
   // 봇 + (내 차례면) 대신 진행되며 결국 종료된다
@@ -90,7 +90,9 @@ test('저장 / 복원 후 이어서 진행', async () => {
       const me = restored.players.find((p) => !p.isBot);
       if (restored.game && restored.game.phase === 'playing') {
         const cur = restored.game.seats[(restored.game.firstSeat + restored.game.offset) % 6];
-        if (cur === me.id) restored.request('h2', 'action', { type: 'manip', amount: 1, pair: 0 });
+        if (cur === me.id && restored.game.players[me.id].credits > 0) {
+          restored.request('h2', 'action', { type: 'manip', amount: 1, pair: 0 }); // 0이면 자동 패스
+        }
       }
     }, 2);
   });

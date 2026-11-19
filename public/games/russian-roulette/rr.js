@@ -3,6 +3,7 @@
 
   const N = 6;
   const NAME_KEY = 'plan:name';
+  const SOUND_KEY = 'plan:sound';
   const BASE_TITLE = document.title;
 
   const $ = (id) => document.getElementById(id);
@@ -10,32 +11,145 @@
   const mod = (n, m) => ((n % m) + m) % m;
   const pairChs = (i) => [mod(i, N), mod(i + 1, N)];
   const pairLabel = (i) => pairChs(i).map((c) => c + 1).join('·');
-
-  const store = {
-    name() { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } },
-    setName(n) { try { localStorage.setItem(NAME_KEY, n); } catch {} },
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
+
+  /* ------------------------------------------------------------ */
+  /* icons                                                         */
+  /* ------------------------------------------------------------ */
+
+  const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+  const rot = (n) => svg(`<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 3.5V8h-4.5"/><text x="12" y="15.6" text-anchor="middle" font-size="9.5" font-weight="900" fill="currentColor" stroke="none" font-family="system-ui">${n}</text>`);
+  const ICON = {
+    eye: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    eyeOff: svg('<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
+    rot1: rot(1),
+    rot2: rot(2),
+    swap: svg('<path d="M7 4L3 8l4 4"/><path d="M3 8h14"/><path d="M17 20l4-4-4-4"/><path d="M21 16H7"/>'),
+  };
+  const COIN = `<svg class="coin" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset="1" stop-color="#e89a10"/></linearGradient></defs>
+    <circle cx="16" cy="16" r="14" fill="url(#cg)" stroke="#a86a00" stroke-width="1.5"/><circle cx="16" cy="16" r="9.5" fill="none" stroke="#a86a00" stroke-width="1.5" opacity=".6"/>
+    <text x="16" y="21" text-anchor="middle" font-size="13" font-weight="900" fill="#7a4a00" font-family="system-ui">C</text></svg>`;
+
+  const ACTS = [
+    { key: 'publicCheck', lb: '공개<br>조사', name: '공개 조사', cost: '1', icon: ICON.eye, desc: '붙어 있는 2칸 · 모두에게 공개' },
+    { key: 'privateCheck', lb: '비공개<br>조사', name: '비공개 조사', cost: '2', icon: ICON.eyeOff, desc: '붙어 있는 2칸 · 나만 확인', priv: true },
+    { key: 'rotate1', lb: '1칸<br>회전', name: '1칸 회전', cost: '3', icon: ICON.rot1, desc: '총구를 시계 방향 1칸' },
+    { key: 'rotate2', lb: '2칸<br>회전', name: '2칸 회전', cost: '4', icon: ICON.rot2, desc: '총구를 시계 방향 2칸' },
+    { key: 'manip', lb: '몰래<br>조작', name: '조작', cost: '1-3', icon: ICON.swap, desc: '1~3씩 몰래 모아 6 → 붙은 2칸 탄약 교환', priv: true },
+  ];
+  const actByKey = Object.fromEntries(ACTS.map((a) => [a.key, a]));
+
+  /* ------------------------------------------------------------ */
+  /* sound & haptics                                               */
+  /* ------------------------------------------------------------ */
+
+  const SFX = (() => {
+    let ctx = null;
+    let on = ls.get(SOUND_KEY) !== 'off';
+    const ac = () => {
+      if (!ctx) {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return null;
+        ctx = new C();
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    };
+    function tone(f1, f2, dur, type = 'sine', vol = 0.12, delay = 0) {
+      if (!on) return;
+      const c = ac();
+      if (!c) return;
+      const t = c.currentTime + delay;
+      const o = c.createOscillator();
+      const gn = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f1, t);
+      if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+      gn.gain.setValueAtTime(vol, t);
+      gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(gn).connect(c.destination);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    }
+    function noise(dur, vol, freq, type = 'lowpass', delay = 0) {
+      if (!on) return;
+      const c = ac();
+      if (!c) return;
+      const t = c.currentTime + delay;
+      const len = Math.max(1, Math.floor(c.sampleRate * dur));
+      const buf = c.createBuffer(1, len, c.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      const f = c.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      const gn = c.createGain();
+      gn.gain.value = vol;
+      src.connect(f).connect(gn).connect(c.destination);
+      src.start(t);
+    }
+    return {
+      get on() { return on; },
+      toggle() { on = !on; ls.set(SOUND_KEY, on ? 'on' : 'off'); if (on) this.select(); return on; },
+      unlock() { if (on) ac(); },
+      select() { tone(700, 950, 0.07, 'triangle', 0.07); },
+      turn() { tone(660, 0, 0.12, 'sine', 0.13); tone(990, 0, 0.2, 'sine', 0.13, 0.12); },
+      spin() { for (let i = 0; i < 6; i++) noise(0.03, 0.3, 3200, 'highpass', i * 0.12); },
+      reveal() { tone(320, 640, 0.14, 'sine', 0.08); },
+      soft() { tone(240, 200, 0.08, 'sine', 0.06); },
+      click() { noise(0.05, 0.7, 4200, 'highpass'); tone(1800, 900, 0.04, 'square', 0.035); },
+      bang() { noise(0.8, 1.1, 900, 'lowpass'); tone(130, 38, 0.45, 'sine', 0.55); },
+      win() { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0, 0.2, 'triangle', 0.1, i * 0.1)); },
+      lose() { [392, 330, 262].forEach((f, i) => tone(f, f * 0.96, 0.32, 'sawtooth', 0.05, i * 0.2)); },
+    };
+  })();
+  const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+  document.addEventListener('pointerdown', () => SFX.unlock(), { once: true });
+
+  /* ------------------------------------------------------------ */
+  /* state                                                         */
+  /* ------------------------------------------------------------ */
 
   const S = {
     room: null,
     sel: { type: null, pair: null, amount: null },
-    hoverPair: null,
+    pendingCh: null,
     boardFor: null,
     cylAngle: 0,
     lastAim: null,
     anim: { running: false, step: -1, done: false, timer: null },
     prevPhase: null,
     prevGameNo: null,
+    lastTurnKey: null,
+    lastEvCount: 0,
     tab: 'log',
     chatSeenAt: Date.now(),
     busy: false,
+    resultShown: false,
   };
 
   const T = window.RRNet.create();
   const emit = (ev, payload) => T.request(ev, payload);
 
+  const g = () => S.room && S.room.game;
+  const meId = () => S.room && S.room.meId;
+  const isHost = () => S.room && S.room.hostId === S.room.meId;
+  const roomPlayer = (id) => (S.room ? S.room.players.find((p) => p.id === id) : null);
+  function rawName(id) {
+    const game = g();
+    const seat = game && game.seats.find((s) => s.id === id);
+    return seat ? seat.name : (roomPlayer(id) || {}).name || '?';
+  }
+  const nm = (id) => (id === meId() ? '나' : esc(rawName(id)));
+  const clearSel = () => { S.sel = { type: null, pair: null, amount: null }; S.pendingCh = null; };
+
   /* ------------------------------------------------------------ */
-  /* util                                                          */
+  /* ui helpers                                                    */
   /* ------------------------------------------------------------ */
 
   let toastTimer;
@@ -49,6 +163,9 @@
     el.textContent = msg;
     el.classList.toggle('error', !!isError);
     el.classList.remove('hidden');
+    el.style.animation = 'none';
+    void el.offsetHeight; // 애니메이션 재시작
+    el.style.animation = '';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.add('hidden'), 2600);
   }
@@ -67,39 +184,56 @@
 
   function showScreen(id) {
     ['screenLoading', 'screenEntry', 'screenLobby', 'screenGame'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
-    $('btnLeave').classList.toggle('hidden', id === 'screenEntry' || id === 'screenLoading');
+    const inRoom = id === 'screenLobby' || id === 'screenGame';
+    $('btnLeave').classList.toggle('hidden', !inRoom);
+    $('btnChat').classList.toggle('hidden', !inRoom);
+    $('hudTitle').textContent = id === 'screenLobby' ? '대기실' : '러시안 룰렛';
+    document.querySelector('.app').classList.toggle('in-game', id === 'screenGame');
   }
 
-  const g = () => S.room && S.room.game;
-  const meId = () => S.room && S.room.meId;
-  const isHost = () => S.room && S.room.hostId === S.room.meId;
-  const roomPlayer = (id) => S.room.players.find((p) => p.id === id);
-  function nameOf(id) {
-    const game = g();
-    const seat = game && game.seats.find((s) => s.id === id);
-    const n = seat ? seat.name : roomPlayer(id)?.name || '?';
-    return id === meId() ? `${n}(나)` : n;
-  }
+  function openSheet(id) { $(id).classList.remove('hidden'); }
+  document.querySelectorAll('.sheet-backdrop').forEach((m) =>
+    m.addEventListener('click', (e) => {
+      if (e.target === m || e.target.closest('[data-close]')) m.classList.add('hidden');
+    }),
+  );
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.querySelectorAll('.sheet-backdrop').forEach((m) => m.classList.add('hidden'));
+  });
 
   /* ------------------------------------------------------------ */
   /* entry                                                         */
   /* ------------------------------------------------------------ */
 
+  function heroArt() {
+    const holes = [0, 1, 2, 3, 4, 5].map((i) => {
+      const a = ((i * 60 - 90) * Math.PI) / 180;
+      const x = 100 + 52 * Math.cos(a);
+      const y = 100 + 52 * Math.sin(a);
+      const live = i === 1 || i === 4;
+      return `<circle cx="${x}" cy="${y}" r="20" fill="${live ? '#ff2e4d' : '#0b0b10'}" stroke="${live ? '#ff8a9a' : '#3a3a48'}" stroke-width="3"/>` +
+        (live ? `<circle cx="${x}" cy="${y}" r="8" fill="#ffc542"/>` : '');
+    }).join('');
+    $('heroArt').innerHTML = `<defs><radialGradient id="hcy" cx="40%" cy="35%"><stop offset="0" stop-color="#4a4a58"/><stop offset="1" stop-color="#16161d"/></radialGradient></defs>
+      <g class="spin"><circle cx="100" cy="100" r="86" fill="url(#hcy)" stroke="#5c5c6c" stroke-width="3"/>${holes}
+      <circle cx="100" cy="100" r="12" fill="#0b0b10" stroke="#3a3a48" stroke-width="3"/></g>`;
+  }
+
   function readName() {
     const n = $('nameInput').value.trim();
     if (!n) {
-      toast('닉네임을 입력하세요.', true);
+      toast('닉네임을 입력하세요', true);
       $('nameInput').focus();
       return null;
     }
-    store.setName(n);
+    ls.set(NAME_KEY, n);
     return n;
   }
 
   async function enter(ev, payload) {
     if (S.busy) return;
     S.busy = true;
-    showLoading(ev === 'create' ? (payload.practice ? '연습 게임을 준비하는 중…' : '방을 여는 중…') : '방에 접속하는 중…');
+    showLoading(ev === 'create' ? (payload.practice ? '연습 게임 준비 중…' : '방 여는 중…') : '접속 중…');
     const res = ev === 'create' ? await T.create(payload) : await T.join(payload);
     S.busy = false;
     if (!res.ok) {
@@ -107,16 +241,16 @@
       return toast(res.error, true);
     }
     setUrlRoom(res.code);
-    if (!S.room) showLoading('방 정보를 받는 중…');
+    if (!S.room) showLoading('방 정보 받는 중…');
   }
 
   $('btnCreate').onclick = () => { const name = readName(); if (name) enter('create', { name }); };
   $('btnPractice').onclick = () => { const name = readName(); if (name) enter('create', { name, practice: true }); };
   $('btnJoin').onclick = () => {
     const name = readName();
-    const code = $('codeInput').value.trim().toUpperCase();
     if (!name) return;
-    if (code.length !== 4) return toast('4자리 방 코드를 입력하세요.', true);
+    const code = $('codeInput').value.trim().toUpperCase();
+    if (code.length !== 4) return toast('방 코드 4자리를 입력하세요', true);
     enter('join', { code, name });
   };
   $('codeInput').addEventListener('keydown', (e) => e.key === 'Enter' && $('btnJoin').click());
@@ -126,30 +260,30 @@
     S.room = null;
     S.boardFor = null;
     document.title = BASE_TITLE;
-    $('nameInput').value = $('nameInput').value || store.name();
+    $('nameInput').value = $('nameInput').value || ls.get(NAME_KEY) || '';
     const urlCode = new URL(location.href).searchParams.get('room');
     if (urlCode) $('codeInput').value = urlCode.toUpperCase();
+    closeResult();
+    $('sheetLog').classList.add('hidden');
     showScreen('screenEntry');
   }
 
   async function tryResume() {
     const urlCode = (new URL(location.href).searchParams.get('room') || '').toUpperCase();
-    showLoading('이전 게임에 다시 연결하는 중…');
+    showLoading('다시 연결하는 중…');
     const res = await T.resume(urlCode);
-    if (res.ok) {
-      setUrlRoom(res.code);
-      return;
-    }
+    if (res.ok) return setUrlRoom(res.code);
     if (res.error) toast(res.error, true);
     showEntry();
   }
 
   $('btnLeave').onclick = async () => {
-    const playing = g() && g().phase === 'playing';
-    if (playing && !confirm('게임 중에 나가면 남은 차례는 봇이 대신합니다. 나갈까요?')) return;
+    const game = g();
+    const playing = game && game.phase === 'playing';
+    const msg = T.mode === 'p2p' && isHost() ? '방을 닫고 나갈까요?' : playing ? '나가면 남은 차례는 봇이 대신해요. 나갈까요?' : '방에서 나갈까요?';
+    if (!confirm(msg)) return;
     await T.leave();
     setUrlRoom(null);
-    closeModal('resultModal');
     showEntry();
   };
 
@@ -158,22 +292,9 @@
   /* ------------------------------------------------------------ */
 
   T.on('status', (d) => toast(d.message, d.state !== 'connected'));
-  T.on('kicked', () => {
-    setUrlRoom(null);
-    closeModal('resultModal');
-    toast('방장에 의해 퇴장되었습니다.', true);
-    showEntry();
-  });
-  T.on('closed', (d) => {
-    setUrlRoom(null);
-    closeModal('resultModal');
-    toast((d && d.reason) || '방이 닫혔습니다.', true);
-    showEntry();
-  });
-  T.on('room', (room) => {
-    S.room = room;
-    onRoom();
-  });
+  T.on('kicked', () => { setUrlRoom(null); toast('방장이 내보냈어요', true); showEntry(); });
+  T.on('closed', (d) => { setUrlRoom(null); toast((d && d.reason) || '방이 닫혔어요', true); showEntry(); });
+  T.on('room', (room) => { S.room = room; onRoom(); });
 
   function onRoom() {
     const room = S.room;
@@ -181,23 +302,31 @@
     const phase = room.phase;
 
     if (room.gameNo !== S.prevGameNo) {
-      // 새 게임 (또는 처음 접속)
       stopAnim();
-      S.sel = { type: null, pair: null, amount: null };
+      clearSel();
       S.boardFor = null;
-      if (phase === 'ended') S.anim.done = true; // 이미 끝난 게임에 접속
+      S.lastEvCount = game ? game.events.length : 0;
+      if (phase === 'ended') S.anim.done = true;
       S.prevGameNo = room.gameNo;
     } else if (S.prevPhase === 'playing' && phase === 'ended') {
       startAnim();
     }
-    if (phase === 'lobby') {
-      stopAnim();
-      closeModal('resultModal');
-    }
-    if (game && game.currentPlayerId !== room.meId) S.sel = { type: null, pair: null, amount: null };
+    if (phase === 'lobby') { stopAnim(); closeResult(); }
+    if (game && game.currentPlayerId !== room.meId) clearSel();
     S.prevPhase = phase;
 
-    document.title = game && game.phase === 'playing' && game.currentPlayerId === room.meId ? `▶ 내 차례 · ${BASE_TITLE}` : BASE_TITLE;
+    // 효과음
+    if (game) {
+      const fresh = game.events.slice(S.lastEvCount);
+      S.lastEvCount = game.events.length;
+      if (fresh.some((e) => e.type === 'publicCheck' || (e.type === 'privateCheck' && e.mine))) SFX.reveal();
+      else if (fresh.some((e) => e.type === 'private')) SFX.soft();
+    }
+    const turnKey = game && game.phase === 'playing' && game.currentPlayerId === room.meId ? `${room.gameNo}:${game.turn}` : null;
+    if (turnKey && turnKey !== S.lastTurnKey) { SFX.turn(); buzz([40, 60, 40]); }
+    S.lastTurnKey = turnKey;
+
+    document.title = turnKey ? `🔥 내 차례 · ${BASE_TITLE}` : BASE_TITLE;
     render();
     if (phase === 'ended' && S.anim.done && !S.resultShown) showResult();
   }
@@ -215,6 +344,7 @@
       showScreen('screenGame');
       renderGame();
     }
+    renderSheet();
   }
 
   /* ---------- lobby ---------- */
@@ -222,32 +352,30 @@
   function renderLobby() {
     const room = S.room;
     $('lobbyCode').textContent = room.code;
-    const slots = [];
+    const tiles = [];
     for (let i = 0; i < N; i++) {
       const p = room.players[i];
       if (!p) {
-        slots.push(`<div class="slot empty"><div class="avatar">·</div><div class="nm">빈자리 <span class="dim" style="font-weight:500;font-size:12px">— 시작 시 봇이 채웁니다</span></div></div>`);
+        tiles.push('<div class="slot empty"><div class="av">+</div><div class="nm">빈자리</div></div>');
         continue;
       }
-      const tags = [];
-      if (p.id === room.hostId) tags.push('<span class="badge badge-gold">방장</span>');
-      if (p.id === room.meId) tags.push('<span class="badge badge-accent">나</span>');
-      if (p.isBot) tags.push('<span class="badge">BOT</span>');
-      if (!p.connected) tags.push('<span class="badge">연결 끊김</span>');
-      const kick = isHost() && p.id !== room.meId ? `<button class="btn btn-sm btn-ghost" data-kick="${p.id}">내보내기</button>` : '';
-      slots.push(`<div class="slot ${p.id === room.meId ? 'me' : ''}">
-        <div class="avatar">${p.isBot ? '🤖' : esc(p.name.slice(0, 1))}</div>
-        <div class="nm">${esc(p.name)} ${tags.join('')}</div>${kick}</div>`);
+      const cls = ['slot', p.id === room.meId ? 'me' : '', p.isBot ? 'bot' : '', p.connected ? '' : 'off'].join(' ');
+      tiles.push(`<div class="${cls}">
+        ${p.id === room.hostId ? '<span class="crown">👑</span>' : ''}
+        ${isHost() && p.id !== room.meId ? `<button class="kick" data-kick="${p.id}" aria-label="내보내기">✕</button>` : ''}
+        <div class="av">${p.isBot ? '🤖' : esc(p.name.slice(0, 1))}</div>
+        <div class="nm">${p.id === room.meId ? '나' : esc(p.name)}</div></div>`);
     }
-    $('slots').innerHTML = slots.join('');
-
+    $('slots').innerHTML = tiles.join('');
     const empty = N - room.players.length;
+    const hints = [];
+    if (empty) hints.push(`빈자리 ${empty}개는 봇이 채워요`);
+    if (T.mode === 'p2p' && isHost()) hints.push('방장이 창을 닫으면 방이 사라져요');
+    $('lobbyHint').textContent = hints.join(' · ');
     $('lobbyActions').innerHTML = isHost()
-      ? `<button class="btn" id="btnAddBot" ${empty ? '' : 'disabled'}>+ 봇 추가</button>
-         <button class="btn btn-primary" id="btnStart">게임 시작${empty ? ` (빈자리 ${empty}개는 봇)` : ''}</button>`
-      : `<div class="muted" style="padding:10px 0">방장이 게임을 시작하기를 기다리는 중…</div>`;
-    $('lobbyNote').classList.toggle('hidden', T.mode !== 'p2p');
-    renderChat($('lobbyChat'));
+      ? `<button class="btn btn-lg" id="btnAddBot" ${empty ? '' : 'disabled'} aria-label="봇 추가">+ 🤖</button>
+         <button class="btn btn-primary btn-lg" id="btnStart">게임 시작</button>`
+      : '<div class="waiting">방장이 곧 시작해요<i>.</i><i>.</i><i>.</i></div>';
   }
 
   $('slots').addEventListener('click', async (e) => {
@@ -257,15 +385,12 @@
     if (!res.ok) toast(res.error, true);
   });
   $('lobbyActions').addEventListener('click', async (e) => {
-    if (e.target.id === 'btnAddBot') {
-      const res = await emit('addBot');
-      if (!res.ok) toast(res.error, true);
-    } else if (e.target.id === 'btnStart') {
-      const res = await emit('start');
-      if (!res.ok) toast(res.error, true);
-    }
+    const b = e.target.closest('button');
+    if (!b) return;
+    const res = await emit(b.id === 'btnAddBot' ? 'addBot' : 'start');
+    if (!res.ok) toast(res.error, true);
   });
-  $('btnCopy').onclick = async () => {
+  $('btnShare').onclick = async () => {
     const url = new URL(location.href);
     url.search = '';
     url.hash = '';
@@ -273,41 +398,21 @@
     const dev = new URLSearchParams(location.search).get('peer');
     if (dev) url.searchParams.set('peer', dev);
     const link = url.toString();
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      try {
+        await navigator.share({ title: '러시안 룰렛', text: `러시안 룰렛 한 판? 방 코드 ${S.room.code}`, url: link });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
     try {
       await navigator.clipboard.writeText(link);
-      toast('초대 링크를 복사했습니다.');
+      toast('초대 링크 복사 완료!');
     } catch {
       prompt('초대 링크', link);
     }
   };
-
-  /* ---------- chat ---------- */
-
-  function renderChat(container) {
-    if (!container.dataset.built) {
-      container.dataset.built = '1';
-      container.innerHTML = `<div class="label">채팅</div><div class="chat-list"></div>
-        <form class="chat-form"><input class="input" maxlength="200" placeholder="메시지를 입력하세요" /><button class="btn">전송</button></form>`;
-      container.querySelector('form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const input = container.querySelector('input');
-        const text = input.value.trim();
-        if (!text) return;
-        emit('chat', { text }).then((r) => !r.ok && toast(r.error, true));
-        input.value = '';
-      });
-    }
-    const list = container.querySelector('.chat-list');
-    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-    list.innerHTML = S.room.chat
-      .map((m) =>
-        m.system
-          ? `<div class="chat-msg sys">· ${esc(m.text)}</div>`
-          : `<div class="chat-msg ${m.playerId === meId() ? 'me' : ''}"><b>${esc(m.from)}</b>${esc(m.text)}</div>`,
-      )
-      .join('') || '<div class="chat-msg sys">아직 메시지가 없습니다.</div>';
-    if (nearBottom) list.scrollTop = list.scrollHeight;
-  }
 
   /* ---------- game ---------- */
 
@@ -315,323 +420,340 @@
     const game = g();
     if (!game) return;
     if (S.boardFor !== S.room.gameNo) buildBoard();
-    renderStatus(game);
+    renderTurnbar(game);
     updateBoard(game);
-    renderMe(game);
-    renderActions(game);
-    renderLog(game);
-    renderChat($('tabChat'));
-    if (S.tab === 'chat') S.chatSeenAt = Date.now();
-    const unread = S.room.chat.filter((m) => !m.system && m.playerId !== meId() && m.at > S.chatSeenAt).length;
-    $('chatBadge').textContent = unread;
-    $('chatBadge').classList.toggle('hidden', !unread || S.tab === 'chat');
+    renderDock(game);
+    renderTicker(game);
+    renderLogInto($('logInline'), game, true);
+    document.querySelector('.app').classList.toggle('stepping', !!S.sel.type && game.currentPlayerId === meId());
   }
 
-  function renderStatus(game) {
-    const seatName = (s) => esc(nameOf(game.seats[s].id));
-    const chips = [`<div class="chip"><span>라운드</span><b>${game.round}</b></div>`];
-    chips.push(`<div class="chip"><span>선 플레이어</span><b>${seatName(game.firstSeat)}</b></div>`);
-    if (game.phase === 'playing') {
-      const mine = game.currentPlayerId === meId();
-      chips.push(`<div class="chip ${mine ? 'turn-me' : ''}"><span>현재 차례</span><b>${mine ? '나' : seatName(game.currentSeat)}</b></div>`);
-    } else {
-      chips.push(`<div class="chip turn-me"><span>상태</span><b>게임 종료</b></div>`);
-    }
-    chips.push(`<div class="chip"><span>총구 방향</span><b>${seatName(game.aim)}</b></div>`);
-    const pips = Array.from({ length: game.rules.endWhenEmpty }, (_, i) => `<i class="pip ${i < game.emptyCount ? 'on' : ''}"></i>`).join('');
-    chips.push(`<div class="chip"><span>크레딧 소진 ${game.emptyCount}/${game.rules.endWhenEmpty}</span><div class="pips">${pips}</div></div>`);
-    $('statusbar').innerHTML = chips.join('');
+  function renderTurnbar(game) {
+    let status;
+    if (game.phase === 'ended') status = `<div class="tb-status over">${S.anim.done ? '게임 종료' : '💥 격발'}</div>`;
+    else if (game.currentPlayerId === meId()) status = '<div class="tb-status me">🔥 내 차례</div>';
+    else status = `<div class="tb-status">${nm(game.currentPlayerId)} <span class="think"><i></i><i></i><i></i></span></div>`;
+    $('turnbar').innerHTML = `<div class="tb-round">ROUND ${game.round}</div>${status}`;
   }
 
   /* ---------- board ---------- */
 
-  const SEAT_R = 240;
-  const CH_R = 88;
+  const SEAT_R = 232;
+  const CH_R = 80;
   const pos = (i, r) => {
     const a = ((-90 + i * 60) * Math.PI) / 180;
     return [300 + r * Math.cos(a), 300 + r * Math.sin(a)];
   };
 
   function buildBoard() {
-    const svg = $('board');
     let h = `<defs>
-      <radialGradient id="felt" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#2b1118"/><stop offset="100%" stop-color="#120a0d"/></radialGradient>
+      <radialGradient id="felt" cx="50%" cy="45%" r="55%"><stop offset="0" stop-color="#2d0d15"/><stop offset=".7" stop-color="#150a0e"/><stop offset="1" stop-color="#0b0709"/></radialGradient>
+      <radialGradient id="steel" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#5a5a68"/><stop offset=".55" stop-color="#2c2c36"/><stop offset="1" stop-color="#17171e"/></radialGradient>
+      <linearGradient id="steel2" x1="0" x2="1"><stop offset="0" stop-color="#2c2c36"/><stop offset=".5" stop-color="#5a5a68"/><stop offset="1" stop-color="#2c2c36"/></linearGradient>
     </defs>
-    <circle class="table-felt" cx="300" cy="300" r="186"/>
-    <circle class="table-ring" cx="300" cy="300" r="162"/>
+    <circle class="felt" cx="300" cy="300" r="172"/>
+    <circle class="felt-ring" cx="300" cy="300" r="150"/>
+    <g class="ghost" id="ghost"><polygon points="300,126 287,146 313,146"/></g>
     <g class="cyl" id="cyl">
-      <rect class="barrel" x="287" y="126" width="26" height="60" rx="4"/>
-      <polygon class="muzzle" points="300,112 289,132 311,132"/>
-      <circle class="cyl-body" cx="300" cy="300" r="132"/>`;
+      <rect class="barrel" x="287" y="142" width="26" height="44" rx="5"/>
+      <polygon class="muzzle" points="300,126 287,146 313,146"/>
+      <circle class="cyl-body" cx="300" cy="300" r="120"/>`;
     for (let k = 0; k < N; k++) {
       const [x, y] = pos(k, CH_R);
-      h += `<g class="ch" data-ch="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="ch-inner">
-        <circle class="mine-ring" r="37"/><circle class="hole" r="30"/>
-        <text class="num" y="3">${k + 1}</text><text class="st" y="18">?</text></g></g>`;
+      h += `<g class="ch" data-ch="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="ch-in">
+        <circle class="ring" r="35"/><circle class="hole" r="27"/><text class="num" y="8">${k + 1}</text></g></g>`;
     }
-    h += `<circle class="cyl-groove" cx="300" cy="300" r="18"/></g>`;
+    h += '<circle class="cyl-hub" cx="300" cy="300" r="17"/></g>';
     for (let s = 0; s < N; s++) {
       const [x, y] = pos(s, SEAT_R);
       h += `<g class="seat" data-seat="${s}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">
-        <circle class="halo" r="48"/><circle class="base" r="48"/>
-        <g class="crosshair"><circle r="56"/><line x1="0" y1="-64" x2="0" y2="-50"/><line x1="0" y1="50" x2="0" y2="64"/><line x1="-64" y1="0" x2="-50" y2="0"/><line x1="50" y1="0" x2="64" y2="0"/></g>
-        <text class="tag" y="-22"></text><text class="name" y="4"></text><text class="sub" y="22"></text>
-        <line class="x" x1="-24" y1="-24" x2="24" y2="24"/><line class="x" x1="24" y1="-24" x2="-24" y2="24"/>
+        <g class="cross"><circle r="67"/><path d="M0 -76V-60M0 60V76M-76 0H-60M60 0H76"/></g>
+        <circle class="halo" r="56"/><circle class="base" r="56"/>
+        <text class="nm" y="3"></text><text class="sub" y="25"></text>
+        <g class="pill first hidden" transform="translate(40 -44)"><rect x="-15" y="-11" width="30" height="22"/><text y="5">선</text></g>
+        <g class="pill tagme hidden" transform="translate(0 56)"><rect x="-17" y="-11" width="34" height="22"/><text y="5">나</text></g>
+        <path class="x" d="M-26 -26L26 26M26 -26L-26 26"/>
       </g>`;
     }
-    h += `<text class="center-msg" id="centerMsg" x="300" y="316"></text>`;
-    svg.innerHTML = h;
+    h += '<text class="bang" id="bang" x="300" y="326"></text>';
+    $('board').innerHTML = h;
     S.boardFor = S.room.gameNo;
     S.lastAim = null;
   }
 
-  function firedChambers(game) {
+  function firedInfo(game) {
     if (!game.result) return { set: new Set(), current: null };
     const shots = game.result.shots;
     const upto = S.anim.done ? shots.length - 1 : S.anim.step;
     const set = new Set();
     for (let i = 0; i <= upto && i < shots.length; i++) set.add(shots[i].chamber);
-    const current = S.anim.running && S.anim.step >= 0 ? shots[S.anim.step] : null;
-    return { set, current };
+    return { set, current: S.anim.running && S.anim.step >= 0 ? shots[S.anim.step] : null };
+  }
+
+  function needsPair(game) {
+    const t = S.sel.type;
+    if (t === 'publicCheck' || t === 'privateCheck') return true;
+    return t === 'manip' && !!S.sel.amount && game.me.manip + S.sel.amount >= game.rules.manipTarget;
   }
 
   function updateBoard(game) {
-    const svg = $('board');
+    const board = $('board');
     if (S.lastAim === null) S.cylAngle = game.aim * 60;
-    else if (game.aim !== S.lastAim) S.cylAngle += mod(game.aim - S.lastAim, N) * 60;
+    else if (game.aim !== S.lastAim) {
+      S.cylAngle += mod(game.aim - S.lastAim, N) * 60;
+      SFX.spin();
+      buzz(25);
+    }
     S.lastAim = game.aim;
-    svg.querySelector('#cyl').style.transform = `rotate(${S.cylAngle}deg)`;
+    board.querySelector('#cyl').style.transform = `rotate(${S.cylAngle}deg)`;
+
+    const ghost = board.querySelector('#ghost');
+    const rotSteps = S.sel.type === 'rotate1' ? 1 : S.sel.type === 'rotate2' ? 2 : 0;
+    ghost.classList.toggle('on', !!rotSteps);
+    ghost.style.transform = `rotate(${S.cylAngle + rotSteps * 60}deg)`;
 
     const ended = game.phase === 'ended';
-    const { set: fired, current } = firedChambers(game);
+    const { set: fired, current } = firedInfo(game);
     const revealAll = ended && S.anim.done;
+    const picking = game.phase === 'playing' && game.currentPlayerId === meId() && needsPair(game);
     const selPair = S.sel.pair != null ? pairChs(S.sel.pair) : [];
-    const hovPair = S.hoverPair != null ? pairChs(S.hoverPair) : [];
+    const pend = S.pendingCh;
 
-    svg.querySelectorAll('.ch').forEach((el) => {
+    board.querySelectorAll('.ch').forEach((el) => {
       const k = Number(el.dataset.ch);
-      el.querySelector('.ch-inner').style.transform = `rotate(${-S.cylAngle}deg)`;
+      el.querySelector('.ch-in').style.transform = `rotate(${-S.cylAngle}deg)`;
       const cls = ['ch'];
-      let st = '?';
       if (game.result && (revealAll || fired.has(k))) {
-        const loaded = game.result.chambers[k];
-        cls.push(loaded ? 'loaded' : 'empty');
-        st = loaded ? '실탄' : '빈';
+        cls.push(game.result.chambers[k] ? 'loaded' : 'empty');
       } else {
         const kn = game.knowledge[k];
         if (kn) {
           cls.push(kn.loaded ? 'loaded' : 'empty');
           if (kn.source === 'private') cls.push('priv');
           if (kn.stale) cls.push('stale');
-          st = (kn.loaded ? '실탄' : '빈') + (kn.stale ? '?' : '');
         }
       }
       if (game.me && !ended && k === game.me.chamber) cls.push('mine');
+      if (picking) {
+        cls.push('pick');
+        if (pend === k) cls.push('pending');
+        else if (pend != null && (mod(k - pend, N) === 1 || mod(pend - k, N) === 1)) cls.push('pickn');
+      }
       if (selPair.includes(k)) cls.push('sel');
-      if (hovPair.includes(k)) cls.push('hov');
       if (current && current.chamber === k) cls.push('fired');
       el.setAttribute('class', cls.join(' '));
-      el.querySelector('.st').textContent = st;
     });
 
-    const eliminated = new Set();
-    if (game.result) {
-      game.result.shots.forEach((s) => {
-        if (s.hit && (revealAll || fired.has(s.chamber))) eliminated.add(s.playerId);
-      });
-    }
+    const dead = new Set();
+    if (game.result) game.result.shots.forEach((s) => s.hit && (revealAll || fired.has(s.chamber)) && dead.add(s.playerId));
 
-    svg.querySelectorAll('.seat').forEach((el) => {
+    board.querySelectorAll('.seat').forEach((el) => {
       const s = Number(el.dataset.seat);
       const seat = game.seats[s];
       const rp = roomPlayer(seat.id);
       const cls = ['seat'];
       if (seat.id === meId()) cls.push('me');
       if (!ended && s === game.currentSeat) cls.push('turn');
-      if (seat.out && !ended) cls.push('out');
       if (!ended && s === game.aim) cls.push('aimed');
-      if (eliminated.has(seat.id)) cls.push('dead');
+      if (rp && !rp.connected) cls.push('off');
+      if (dead.has(seat.id)) cls.push('dead');
       if (current && current.seat === s) cls.push('firing');
-      if (revealAll && !eliminated.has(seat.id)) cls.push('safe');
+      if (revealAll && !dead.has(seat.id)) cls.push('safe');
       el.setAttribute('class', cls.join(' '));
-
-      const tags = [`<tspan fill="#6f6e80">${s + 1}번</tspan>`];
-      if (s === game.firstSeat && !ended) tags.push('<tspan fill="#e8b14a"> · 선</tspan>');
-      if (rp && rp.isBot) tags.push('<tspan fill="#a9a8b8"> · BOT</tspan>');
-      if (rp && !rp.connected) tags.push('<tspan fill="#ff5468"> · 끊김</tspan>');
-      el.querySelector('.tag').innerHTML = tags.join('');
-      const nm = seat.name.length > 6 ? seat.name.slice(0, 5) + '…' : seat.name;
-      el.querySelector('.name').textContent = nm;
-
+      const name = seat.name.length > 5 ? seat.name.slice(0, 4) + '…' : seat.name;
+      el.querySelector('.nm').textContent = name;
       let sub;
-      if (ended) {
-        sub = eliminated.has(seat.id) ? '탈락' : revealAll ? `생존 · ${seat.credits}cr` : '';
-      } else if (seat.out) {
-        sub = '크레딧 소진';
-      } else {
-        sub = `약실 ${mod(s - game.aim, N) + 1}`;
-        if (seat.id === meId()) sub += ` · ${seat.credits}cr`;
-      }
+      if (ended) sub = dead.has(seat.id) ? '탈락' : revealAll ? '생존' : '';
+      else if (rp && !rp.connected) sub = '연결 끊김';
+      else sub = `약실 ${mod(s - game.aim, N) + 1}`;
       el.querySelector('.sub').textContent = sub;
+      el.querySelector('.first').classList.toggle('hidden', ended || s !== game.firstSeat);
+      el.querySelector('.tagme').classList.toggle('hidden', seat.id !== meId());
     });
   }
 
-  function showCenterMsg(text, hit) {
-    const el = $('centerMsg');
+  $('board').addEventListener('click', (e) => {
+    const el = e.target.closest('.ch');
+    const game = g();
+    if (!el || !game || game.phase !== 'playing' || game.currentPlayerId !== meId() || !needsPair(game)) return;
+    const k = Number(el.dataset.ch);
+    const p = S.pendingCh;
+    if (p === null || p === k) {
+      S.pendingCh = p === k ? null : k;
+      S.sel.pair = null;
+    } else if (mod(k - p, N) === 1) {
+      S.sel.pair = p;
+      S.pendingCh = null;
+    } else if (mod(p - k, N) === 1) {
+      S.sel.pair = k;
+      S.pendingCh = null;
+    } else {
+      S.pendingCh = k;
+      S.sel.pair = null;
+    }
+    SFX.select();
+    renderGame();
+  });
+
+  function bangFx(text, hit) {
+    const el = $('bang');
     if (!el) return;
     el.textContent = text;
     el.classList.remove('show', 'hit');
     el.getBoundingClientRect();
     el.classList.add('show');
     if (hit) el.classList.add('hit');
+    const wrap = $('boardWrap');
+    if (hit) {
+      wrap.classList.remove('shake', 'flash');
+      wrap.getBoundingClientRect();
+      wrap.classList.add('shake', 'flash');
+      setTimeout(() => wrap.classList.remove('shake', 'flash'), 600);
+    }
   }
 
-  /* ---------- me panel ---------- */
+  /* ---------- dock ---------- */
 
-  function knowText(kn) {
-    if (!kn) return '<span class="dim">미확인</span>';
-    const t = kn.loaded ? '<b style="color:var(--accent-2)">실탄</b>' : '<b>빈 약실</b>';
-    return t + (kn.stale ? ' <span class="dim">(조작 이후 불확실)</span>' : kn.source === 'private' ? ' <span class="dim">(비공개 확인)</span>' : '');
+  function knowCls(kn) {
+    if (!kn) return '';
+    return (kn.loaded ? 'loaded' : 'empty') + (kn.stale ? ' stale' : '');
   }
 
-  function renderMe(game) {
+  function renderDock(game) {
     const me = game.me;
-    if (!me) {
-      $('mePanel').innerHTML = '<div class="me-note">관전 중</div>';
-      return;
-    }
+    const dock = $('dock');
+    if (!me) { dock.innerHTML = '<div class="idle-note">관전 중</div>'; return; }
     const r = game.rules;
-    const note =
-      game.phase === 'playing'
-        ? `당신은 <b>${me.seat + 1}번 자리</b>. 지금 격발되면 <b>약실 ${me.chamber + 1}</b> → ${knowText(game.knowledge[me.chamber])}`
-        : game.result.eliminated.includes(me.id)
-          ? '<b style="color:var(--accent-2)">피탄되어 탈락했습니다.</b>'
-          : S.anim.done ? '<b style="color:var(--ok)">살아남았습니다!</b>' : '격발 중…';
-    $('mePanel').innerHTML = `
-      <div><div class="lbl">내 크레딧 (비공개)</div><div class="big">${me.credits}<small> / ${r.startCredits}</small></div></div>
-      <div><div class="lbl">조작 누적 (비공개)</div><div class="big">${me.manip}<small> / ${r.manipTarget}</small></div>
-        <div class="progress"><div style="width:${(me.manip / r.manipTarget) * 100}%"></div></div></div>
-      <div class="me-note">${note}</div>`;
+    const ended = game.phase === 'ended';
+    const myTurn = !ended && game.currentPlayerId === meId();
+    const addAmt = S.sel.type === 'manip' && S.sel.amount ? S.sel.amount : 0;
+
+    const pips = Array.from({ length: r.manipTarget }, (_, i) =>
+      `<i class="${i < me.manip ? 'on' : i < me.manip + addAmt ? 'add' : ''}"></i>`).join('');
+    let mych;
+    if (!ended) mych = `<div class="mych"><span>내 약실</span><b class="${knowCls(game.knowledge[me.chamber])}">${me.chamber + 1}</b></div>`;
+    else {
+      const died = S.anim.done && game.result.eliminated.includes(me.id);
+      mych = `<div class="mych"><span>결과</span><b class="${died ? 'loaded' : ''}">${S.anim.done ? (died ? '탈락' : '생존') : '…'}</b></div>`;
+    }
+    const stats = `<div class="stats">
+      <div class="coins">${COIN}<b>${me.credits}</b><small>/${r.startCredits}</small></div>
+      <div class="stat-sep"></div>
+      <div class="manip"><span>조작</span><div class="pips">${pips}</div></div>
+      ${mych}</div>`;
+
+    let body = '';
+    if (ended) {
+      body = S.anim.done
+        ? '<button class="btn btn-primary btn-lg btn-block" data-result>결과 보기</button>'
+        : '<div class="idle-note">격발 중…</div>';
+    } else if (myTurn && me.credits === 0) {
+      body = `<div class="passbox"><div class="big">크레딧 없음</div>
+        <div class="small">곧 자동으로 패스돼요 · 남들에겐 "비공개 행동"</div>
+        <button class="btn btn-block" data-pass>지금 패스</button></div>`;
+    } else if (myTurn && S.sel.type) {
+      // 선택 모드: 보드가 잘 보이도록 도크를 컴팩트하게
+      const a = actByKey[S.sel.type];
+      dock.innerHTML = `<div class="step-head">
+          <button class="icon-btn" data-back aria-label="뒤로">‹</button>
+          <div class="sh-title ${a.priv ? 'priv' : ''}">${a.icon}<span>${a.name}</span></div>
+          <div class="sh-coins">${COIN}<b>${me.credits}</b></div>
+        </div>${renderStep(game)}`;
+      return;
+    } else {
+      body = `<div class="acts">${ACTS.map((a) => {
+        const enabled = myTurn && game.actions.includes(a.key);
+        return `<button class="act ${a.priv ? 'priv' : ''}" data-act="${a.key}" ${enabled ? '' : 'disabled'}>
+          <span class="cost">${a.cost}</span>${a.icon}<span class="lb">${a.lb}</span></button>`;
+      }).join('')}</div>`;
+    }
+    dock.innerHTML = stats + body;
   }
 
-  /* ---------- actions ---------- */
-
-  const ACTS = [
-    { key: 'publicCheck', t: '공개 조사', c: '1', d: '인접 약실 2개 · 전체 공개' },
-    { key: 'privateCheck', t: '비공개 조사', c: '2', d: '인접 약실 2개 · 나만 확인' },
-    { key: 'rotate1', t: '1칸 회전', c: '3', d: '총구를 시계 방향 1칸' },
-    { key: 'rotate2', t: '2칸 회전', c: '4', d: '총구를 시계 방향 2칸' },
-    { key: 'manip', t: '조작', c: '1~3', d: '비공개 제출 · 누적 6이면 인접 약실 2개의 탄약을 교환', wide: true },
-  ];
-
-  function pairButtons(game, selected) {
-    const glyph = (c) => {
-      const kn = game.knowledge[c];
-      if (!kn) return '?';
-      return (kn.loaded ? '실' : '빈') + (kn.stale ? '?' : '');
-    };
+  function pairChips(selected) {
     let h = '<div class="pairs">';
-    for (let i = 0; i < N; i++) {
-      const [a, b] = pairChs(i);
-      h += `<button class="pair ${selected === i ? 'on' : ''}" data-pair="${i}">${pairLabel(i)}<small>${glyph(a)} · ${glyph(b)}</small></button>`;
-    }
+    for (let i = 0; i < N; i++) h += `<button class="pair ${selected === i ? 'on' : ''}" data-pair="${i}">${pairLabel(i)}</button>`;
     return h + '</div>';
   }
 
-  function renderActions(game) {
-    const panel = $('actionPanel');
-    const myTurn = game.phase === 'playing' && game.currentPlayerId === meId();
-    const me = game.me;
-    let banner;
-    if (game.phase !== 'playing') banner = '<div class="turn-banner"><span class="dot"></span>게임이 끝났습니다</div>';
-    else if (myTurn) banner = '<div class="turn-banner me"><span class="dot"></span>당신의 차례입니다 — 행동을 선택하세요</div>';
-    else {
-      const cur = roomPlayer(game.currentPlayerId);
-      const who = esc(nameOf(game.currentPlayerId));
-      banner = `<div class="turn-banner"><span class="dot"></span>${who} 님의 차례${cur && (cur.isBot || !cur.connected) ? ' <span class="dim" style="font-weight:500">(자동 진행)</span>' : ''}</div>`;
-    }
-
-    const acts = ACTS.map((a) => {
-      const enabled = myTurn && game.actions.includes(a.key);
-      return `<button class="act ${a.wide ? 'wide' : ''} ${S.sel.type === a.key ? 'on' : ''}" data-act="${a.key}" ${enabled ? '' : 'disabled'}>
-        <span class="t">${a.t}<span class="c">${a.c}cr</span></span><span class="d">${a.d}</span></button>`;
-    }).join('');
-
-    let detail = '';
+  function renderStep(game) {
     const sel = S.sel;
-    if (myTurn && sel.type) {
-      if (sel.type === 'publicCheck' || sel.type === 'privateCheck') {
-        const cost = game.rules.cost[sel.type];
-        detail = `<div class="hint">조사할 <b>인접한 약실 2개</b>를 고르세요. ${sel.type === 'publicCheck' ? '결과가 <b>모두에게 공개</b>됩니다.' : '결과는 <b>나만</b> 볼 수 있습니다.'}</div>
-          ${pairButtons(game, sel.pair)}
-          <button class="btn btn-primary btn-block" data-confirm ${sel.pair == null ? 'disabled' : ''}>
-            ${sel.type === 'publicCheck' ? '공개' : '비공개'} 조사${sel.pair != null ? ` [약실 ${pairLabel(sel.pair)}]` : ''} 실행 (−${cost}cr)</button>`;
-      } else if (sel.type === 'rotate1' || sel.type === 'rotate2') {
-        const steps = sel.type === 'rotate1' ? 1 : 2;
-        const newAim = mod(game.aim + steps, N);
-        const myCh = mod(me.seat - newAim, N);
-        detail = `<div class="hint">총구가 <b>${esc(nameOf(game.seats[newAim].id))}</b> 님을 향하게 됩니다.<br/>
-          회전 후 내 자리는 <b>약실 ${myCh + 1}</b> → ${knowText(game.knowledge[myCh])}</div>
-          <button class="btn btn-primary btn-block" data-confirm>${steps}칸 회전 실행 (−${game.rules.cost[sel.type]}cr)</button>`;
-      } else if (sel.type === 'manip') {
-        const r = game.rules;
-        const amounts = [];
-        for (let a = r.manipMin; a <= r.manipMax; a++) {
-          amounts.push(`<button class="pair ${sel.amount === a ? 'on' : ''}" data-amt="${a}" ${a > me.credits ? 'disabled' : ''}>${a}<small>크레딧</small></button>`);
-        }
-        const reaches = sel.amount && me.manip + sel.amount >= r.manipTarget;
-        const waste = reaches ? me.manip + sel.amount - r.manipTarget : 0;
-        detail = `<div class="hint">현재 조작 누적 <b>${me.manip}/${r.manipTarget}</b>. 제출 금액은 <b>나만</b> 압니다.</div>
-          <div class="amounts">${amounts.join('')}</div>`;
-        if (sel.amount) {
-          detail += reaches
-            ? `<div class="hint" style="color:var(--gold)"><b>조작권 획득!</b> 탄약을 서로 바꿀 인접 약실 2개를 고르세요.${waste ? ` (초과 ${waste}크레딧 소멸)` : ''}</div>${pairButtons(game, sel.pair)}`
-            : `<div class="hint">제출 후 누적 <b>${me.manip + sel.amount}/${r.manipTarget}</b></div>`;
-        }
-        const ready = sel.amount && (!reaches || sel.pair != null);
-        detail += `<button class="btn btn-primary btn-block" data-confirm ${ready ? '' : 'disabled'}>
-          ${reaches ? `조작 실행${sel.pair != null ? ` [약실 ${pairLabel(sel.pair)} 교환]` : ''}` : '조작 크레딧 제출'}${sel.amount ? ` (−${sel.amount}cr)` : ''}</button>`;
+    const me = game.me;
+    const a = actByKey[sel.type];
+    let h = '';
+    let ready = false;
+    let label = a.name;
+    if (sel.type === 'publicCheck' || sel.type === 'privateCheck') {
+      const hint = sel.pair != null ? `약실 <b>${pairLabel(sel.pair)}</b> 선택`
+        : S.pendingCh != null ? '깜빡이는 <b>옆 칸</b>을 누르세요'
+        : '보드에서 <b>붙어 있는 약실 2개</b>를 누르세요';
+      h += `<div class="step-hint">${hint}</div>${pairChips(sel.pair)}`;
+      ready = sel.pair != null;
+      label = `${a.name}${sel.pair != null ? ` · ${pairLabel(sel.pair)}` : ''}`;
+    } else if (sel.type === 'rotate1' || sel.type === 'rotate2') {
+      const steps = sel.type === 'rotate1' ? 1 : 2;
+      const newAim = mod(game.aim + steps, N);
+      const myCh = mod(me.seat - newAim, N);
+      h += `<div class="step-hint">총구 → <b>${nm(game.seats[newAim].id)}</b> · 내 약실 <b>${myCh + 1}</b></div>`;
+      ready = true;
+    } else if (sel.type === 'manip') {
+      const r = game.rules;
+      const seg = [];
+      for (let v = r.manipMin; v <= r.manipMax; v++) seg.push(`<button class="${sel.amount === v ? 'on' : ''}" data-amt="${v}" ${v > me.credits ? 'disabled' : ''}>${v}</button>`);
+      const reaches = sel.amount && me.manip + sel.amount >= r.manipTarget;
+      h += `<div class="step-hint">몰래 낼 크레딧 · 지금 <b class="gold">${me.manip}/${r.manipTarget}</b></div><div class="seg">${seg.join('')}</div>`;
+      if (reaches) {
+        const waste = me.manip + sel.amount - r.manipTarget;
+        h += `<div class="step-hint"><b class="gold">⚡ 조작권!</b> 탄약을 바꿀 약실 2개${waste ? ` <span class="dim">(초과 ${waste} 소멸)</span>` : ''}</div>${pairChips(sel.pair)}`;
+        ready = sel.pair != null;
+        label = `조작 실행${sel.pair != null ? ` · ${pairLabel(sel.pair)} 교환` : ''}`;
+      } else {
+        ready = !!sel.amount;
+        label = '몰래 제출';
       }
-      detail = `<div class="detail">${detail}</div>`;
     }
-
-    panel.innerHTML = banner + `<div class="acts">${acts}</div>` + detail;
+    const cost = sel.type === 'manip' ? sel.amount || '' : a.cost;
+    h += `<button class="btn btn-primary btn-lg btn-block" data-confirm ${ready ? '' : 'disabled'}>${label}${cost ? ` <span style="opacity:.75">· ${cost}C</span>` : ''}</button>`;
+    return `<div class="step">${h}</div>`;
   }
 
-  $('actionPanel').addEventListener('click', async (e) => {
-    const t = e.target.closest('button');
-    if (!t || t.disabled) return;
-    if (t.dataset.act) {
-      S.sel = { type: t.dataset.act === S.sel.type ? null : t.dataset.act, pair: null, amount: null };
-    } else if (t.dataset.pair != null) {
-      S.sel.pair = Number(t.dataset.pair);
-    } else if (t.dataset.amt != null) {
-      S.sel.amount = Number(t.dataset.amt);
+  $('dock').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    if (b.dataset.act) {
+      clearSel();
+      S.sel.type = b.dataset.act;
+      SFX.select();
+      renderGame();
+      return;
+    }
+    if (b.hasAttribute('data-back')) {
+      clearSel();
+      SFX.select();
+      renderGame();
+      return;
+    }
+    if (b.dataset.pair != null) {
+      S.sel.pair = Number(b.dataset.pair);
+      S.pendingCh = null;
+    } else if (b.dataset.amt != null) {
+      S.sel.amount = Number(b.dataset.amt);
       S.sel.pair = null;
-    } else if (t.hasAttribute('data-confirm')) {
+      S.pendingCh = null;
+    } else if (b.hasAttribute('data-confirm')) {
       return submitAction();
+    } else if (b.hasAttribute('data-pass')) {
+      return send({ type: 'pass' });
+    } else if (b.hasAttribute('data-result')) {
+      return showResult();
     }
-    S.hoverPair = null;
-    renderGame();
-  });
-  $('actionPanel').addEventListener('mouseover', (e) => {
-    const p = e.target.closest('[data-pair]');
-    const v = p ? Number(p.dataset.pair) : null;
-    if (v !== S.hoverPair) {
-      S.hoverPair = v;
-      updateBoard(g());
-    }
-  });
-  $('actionPanel').addEventListener('mouseleave', () => {
-    if (S.hoverPair != null) {
-      S.hoverPair = null;
-      updateBoard(g());
-    }
+    SFX.select();
+    if (g()) renderGame();
   });
 
-  async function submitAction() {
+  function submitAction() {
     const sel = S.sel;
-    let action;
+    let action = null;
     if (sel.type === 'publicCheck' || sel.type === 'privateCheck') action = { type: sel.type, pair: sel.pair };
     else if (sel.type === 'rotate1') action = { type: 'rotate', steps: 1 };
     else if (sel.type === 'rotate2') action = { type: 'rotate', steps: 2 };
@@ -639,70 +761,121 @@
       action = { type: 'manip', amount: sel.amount };
       if (sel.pair != null) action.pair = sel.pair;
     }
-    if (!action || S.busy) return;
+    if (action) send(action);
+  }
+
+  async function send(action) {
+    if (S.busy) return;
     S.busy = true;
     const res = await emit('action', action);
     S.busy = false;
     if (!res.ok) return toast(res.error, true);
-    S.sel = { type: null, pair: null, amount: null };
-    S.hoverPair = null;
+    buzz(15);
+    clearSel();
   }
 
   /* ---------- log ---------- */
 
-  const resTag = (b) => (b ? '<span class="res y">실탄</span>' : '<span class="res n">빈</span>');
+  const rchip = (c, y) => `<span class="r ${y ? 'y' : 'n'}">${c + 1}</span>`;
 
-  function evHtml(ev, game) {
-    const who = `<b>${esc(nameOf(ev.by))}</b>`;
+  function evItem(ev, game) {
+    const who = `<b>${nm(ev.by)}</b>`;
     switch (ev.type) {
       case 'start':
-        return { cls: 'round', html: `게임 시작 · 총구가 ${esc(nameOf(game.seats[ev.aim].id))} 님을 향합니다` };
+        return { cls: 'round', html: `START · 총구 → ${nm(game.seats[ev.aim].id)}` };
       case 'roundStart':
-        return { cls: 'round', html: `— 라운드 ${ev.round} · 선 플레이어 ${esc(nameOf(ev.by))} —` };
+        return { cls: 'round', html: `ROUND ${ev.round} · 선 ${nm(ev.by)}` };
       case 'publicCheck': {
         const [a, b] = pairChs(ev.pair);
-        return { cls: '', html: `${who} 공개 조사 · 약실 ${a + 1} ${resTag(ev.results[0])} 약실 ${b + 1} ${resTag(ev.results[1])}` };
+        return { cls: '', html: `${who} 공개 조사 ${rchip(a, ev.results[0])}${rchip(b, ev.results[1])}` };
       }
       case 'privateCheck': {
         const [a, b] = pairChs(ev.pair);
-        if (ev.mine) return { cls: 'mine', html: `🔒 ${who} 비공개 조사 · 약실 ${a + 1} ${resTag(ev.results[0])} 약실 ${b + 1} ${resTag(ev.results[1])}` };
-        return { cls: '', html: `${who} 비공개 조사 · 약실 ${a + 1}·${b + 1} <span class="dim">(결과 비공개)</span>` };
+        return { cls: ev.mine ? 'mine' : '', html: `🔒 ${who} 비공개 조사 ${rchip(a, ev.results[0])}${rchip(b, ev.results[1])}` };
       }
+      case 'private':
+        return { cls: 'priv', html: `${who} 비공개 행동` };
       case 'rotate':
-        return { cls: '', html: `${who} 총구 ${ev.steps}칸 회전 → <b>${esc(nameOf(game.seats[ev.aim].id))}</b> 님을 향함` };
+        return { cls: '', html: `${who} ${ev.steps}칸 회전 → ${nm(game.seats[ev.aim].id)}` };
       case 'manipSubmit':
-        if (ev.mine) return { cls: 'mine', html: `🔒 ${who} 조작 크레딧 ${ev.amount}개 제출 <span class="dim">(누적 ${ev.total}/6)</span>` };
-        return { cls: '', html: `${who} 조작 크레딧 제출 <span class="dim">(금액 비공개)</span>` };
+        return { cls: ev.mine ? 'mine' : '', html: `🔒 ${who} 조작 +${ev.amount} <span class="dim">(${ev.total}/6)</span>` };
       case 'manip':
-        if (ev.mine) return { cls: 'warn', html: `⚡ ${who} 조작 실행 · 약실 ${pairLabel(ev.pair)} 탄약 교환${ev.wasted ? ` <span class="dim">(초과 ${ev.wasted} 소멸)</span>` : ''}` };
-        return { cls: 'warn', html: `⚡ ${who} 조작 실행! <span class="dim">어느 약실이 바뀌었는지는 비공개</span>` };
+        return { cls: ev.mine ? 'mine' : '', html: `⚡ ${who} 조작 · ${pairLabel(ev.pair)} 교환` };
       case 'pass':
-        return { cls: '', html: `${who} 크레딧 소진 · 자동 패스` };
+        return { cls: ev.mine ? 'mine' : '', html: `${ev.mine ? '🔒 ' : ''}${who} 패스` };
       case 'end':
-        return { cls: 'end', html: `💥 게임 종료 · 격발 시작` };
+        return { cls: 'end', html: '💥 격발! <span class="dim">모든 기록 공개</span>' };
       default:
         return null;
     }
   }
 
-  function renderLog(game) {
-    const items = game.events
-      .map((ev) => evHtml(ev, game))
-      .filter(Boolean)
-      .reverse()
-      .map((x) => `<div class="log-item ${x.cls}">${x.html}</div>`);
-    $('tabLog').innerHTML = items.join('');
+  function renderLogInto(el, game, withTitle) {
+    if (!el || !game) return;
+    const items = game.events.map((ev) => evItem(ev, game)).filter(Boolean).reverse();
+    el.innerHTML = (withTitle ? '<div class="log-title">기록</div>' : '') +
+      `<div class="log">${items.map((x) => `<div class="lg-item ${x.cls}">${x.html}</div>`).join('')}</div>`;
   }
 
-  document.querySelectorAll('.tab').forEach((t) =>
-    t.addEventListener('click', () => {
-      S.tab = t.dataset.tab;
-      document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('on', x === t));
-      $('tabLog').classList.toggle('hidden', S.tab !== 'log');
-      $('tabChat').classList.toggle('hidden', S.tab !== 'chat');
-      renderGame();
-    }),
-  );
+  function renderTicker(game) {
+    const items = game.events
+      .filter((e) => e.type !== 'roundStart' && e.type !== 'start')
+      .slice(-2)
+      .reverse()
+      .map((ev) => evItem(ev, game))
+      .filter(Boolean);
+    $('ticker').innerHTML = items.length
+      ? items.map((x) => `<div class="ev">${x.html}</div>`).join('')
+      : `<div class="ev">게임 시작! 총구 → ${nm(game.seats[game.aim].id)}</div>`;
+  }
+
+  $('ticker').onclick = () => { S.tab = 'log'; openSheet('sheetLog'); renderSheet(); };
+  $('btnChat').onclick = () => { S.tab = 'chat'; openSheet('sheetLog'); renderSheet(); setTimeout(() => $('chatInput').focus(), 250); };
+  $('sheetTabs').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-tab]');
+    if (!t) return;
+    S.tab = t.dataset.tab;
+    renderSheet();
+  });
+
+  function renderSheet() {
+    if (!S.room) return;
+    const game = g();
+    if (!game) S.tab = 'chat';
+    const open = !$('sheetLog').classList.contains('hidden');
+    document.querySelector('#sheetTabs [data-tab="log"]').classList.toggle('hidden', !game);
+    document.querySelectorAll('#sheetTabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === S.tab));
+    $('logSheet').classList.toggle('hidden', S.tab !== 'log');
+    $('chatSheet').classList.toggle('hidden', S.tab !== 'chat');
+    $('chatForm').classList.toggle('hidden', S.tab !== 'chat');
+    if (S.tab === 'log' && game) renderLogInto($('logSheet'), game, false);
+    renderChat();
+    if (open && S.tab === 'chat') S.chatSeenAt = Date.now();
+    const unread = S.room.chat.filter((m) => !m.system && m.playerId !== meId() && m.at > S.chatSeenAt).length;
+    $('chatBadge').textContent = unread;
+    $('chatBadge').classList.toggle('hidden', !unread);
+  }
+
+  function renderChat() {
+    const list = $('chatList');
+    const body = list.closest('.sheet-body');
+    const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+    list.innerHTML = S.room.chat.length
+      ? S.room.chat.map((m) => (m.system
+        ? `<div class="msg sys">${esc(m.text)}</div>`
+        : `<div class="msg ${m.playerId === meId() ? 'me' : ''}"><span class="who">${esc(m.from)}</span>${esc(m.text)}</div>`)).join('')
+      : '<div class="empty-note">아직 조용하네요</div>';
+    if (nearBottom && S.tab === 'chat') body.scrollTop = body.scrollHeight;
+  }
+
+  $('chatForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    emit('chat', { text }).then((r) => !r.ok && toast(r.error, true));
+    input.value = '';
+  });
 
   /* ------------------------------------------------------------ */
   /* end animation & result                                       */
@@ -717,6 +890,7 @@
   function startAnim() {
     stopAnim();
     S.anim.running = true;
+    clearSel();
     const shots = g().result.shots;
     const tick = () => {
       if (!g() || !g().result) return stopAnim();
@@ -730,13 +904,17 @@
       }
       const shot = shots[S.anim.step];
       render();
-      showCenterMsg(shot.hit ? '탕!' : '찰칵', shot.hit);
-      S.anim.timer = setTimeout(tick, shot.hit ? 1700 : 1200);
+      if (shot.hit) { SFX.bang(); buzz([120, 40, 200]); } else { SFX.click(); buzz(20); }
+      bangFx(shot.hit ? 'BANG!' : '찰칵', shot.hit);
+      S.anim.timer = setTimeout(tick, shot.hit ? 1800 : 1250);
     };
     render();
-    showCenterMsg('격발!', false);
-    S.anim.timer = setTimeout(tick, 1400);
+    SFX.spin();
+    bangFx('FIRE', false);
+    S.anim.timer = setTimeout(tick, 1500);
   }
+
+  function closeResult() { $('result').classList.add('hidden'); }
 
   function showResult() {
     const game = g();
@@ -744,32 +922,29 @@
     S.resultShown = true;
     const res = game.result;
     const dead = new Set(res.eliminated);
-    const order = res.shots.map((s) => s.seat);
-    const rows = game.seats
-      .map((s) => {
-        const shotIdx = order.indexOf(s.seat);
-        const shot = shotIdx >= 0 ? `${shotIdx + 1}번째 격발 · 약실 ${res.shots[shotIdx].chamber + 1}` : '격발 전 종료';
-        return `<div class="result-row ${dead.has(s.id) ? 'dead' : ''}">
-          <span>${dead.has(s.id) ? '💀' : '🟢'}</span>
-          <span class="nm">${esc(nameOf(s.id))}</span>
-          <span class="dim" style="font-size:12px">${shot}</span>
-          <span class="cr">${s.credits}cr</span></div>`;
-      })
-      .join('');
     const iDied = dead.has(meId());
-    $('resultBody').innerHTML = `
-      <div style="font-size:15px">${iDied ? '<b style="color:var(--accent-2)">당신은 탈락했습니다.</b>' : '<b style="color:var(--ok)">당신은 살아남았습니다!</b>'}
-        <span class="muted">탈락: ${res.eliminated.map((id) => esc(nameOf(id))).join(', ')}</span></div>
-      <div class="label" style="margin-top:14px">최종 약실 (총구: ${esc(nameOf(game.seats[res.aim].id))})</div>
-      <div class="reveal">${res.chambers.map((b, i) => `<span class="${b ? 'y' : ''}">${i + 1}</span>`).join('')}</div>
-      <div class="result-list">${rows}</div>`;
+    const order = res.shots.map((s) => s.seat);
+    $('result').classList.toggle('win', !iDied);
+    $('resultKicker').textContent = `ROUND ${game.round} · GAME OVER`;
+    $('resultTitle').className = `result-title ${iDied ? 'dead' : 'alive'}`;
+    $('resultTitle').textContent = iDied ? '탈락' : '생존';
+    $('resultSub').innerHTML = `💀 ${res.eliminated.map((id) => nm(id)).join(', ')}`;
+    $('resultReveal').innerHTML = res.chambers.map((b, i) => `<span class="${b ? 'y' : ''}" style="animation-delay:${i * 80}ms">${i + 1}</span>`).join('');
+    $('resultList').innerHTML = game.seats.map((s) => {
+      const idx = order.indexOf(s.seat);
+      return `<div class="rrow ${dead.has(s.id) ? 'dead' : ''}">
+        <span>${dead.has(s.id) ? '💀' : '🟢'}</span><span class="nm">${nm(s.id)}</span>
+        <span class="info">${idx >= 0 ? `${idx + 1}번째 격발` : '—'}</span><span class="cr">${s.credits}C</span></div>`;
+    }).join('');
     $('resultActions').innerHTML =
-      (isHost() ? '<button class="btn btn-primary" id="btnLobby">대기실로 (다시 하기)</button>' : '<div class="muted" style="align-self:center">방장이 다음 게임을 준비합니다.</div>') +
-      '<button class="btn" data-close>보드 보기</button>';
-    openModal('resultModal');
+      (isHost() ? '<button class="btn btn-primary btn-lg btn-block" id="btnLobby">한 판 더!</button>' : '<div class="waiting">방장이 다음 판을 준비해요<i>.</i><i>.</i><i>.</i></div>') +
+      '<button class="btn btn-block" data-close-result>보드 보기</button>';
+    $('result').classList.remove('hidden');
+    if (iDied) SFX.lose(); else SFX.win();
   }
 
   $('resultActions').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-close-result]')) return closeResult();
     if (e.target.id === 'btnLobby') {
       const res = await emit('backToLobby');
       if (!res.ok) toast(res.error, true);
@@ -777,35 +952,29 @@
   });
 
   /* ------------------------------------------------------------ */
-  /* modals                                                        */
+  /* header / rules                                                */
   /* ------------------------------------------------------------ */
 
-  function openModal(id) { $(id).classList.remove('hidden'); }
-  function closeModal(id) { $(id).classList.add('hidden'); }
-  document.querySelectorAll('.modal-backdrop').forEach((m) =>
-    m.addEventListener('click', (e) => {
-      if (e.target === m || e.target.closest('[data-close]')) m.classList.add('hidden');
-    }),
-  );
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') document.querySelectorAll('.modal-backdrop').forEach((m) => m.classList.add('hidden'));
-  });
+  const soundIcon = () => ($('btnSound').textContent = SFX.on ? '🔊' : '🔇');
+  $('btnSound').onclick = () => { SFX.toggle(); soundIcon(); };
+  soundIcon();
 
+  $('ruleActs').innerHTML = ACTS.map((a) => `<div class="rule-act">${a.icon}<div><div class="t">${a.name}</div><div class="d">${a.desc}</div></div><span class="c">${a.cost}</span></div>`).join('');
   const info = (window.GAMES || []).find((x) => x.id === 'russian-roulette');
-  $('rulesBody').innerHTML = info ? info.rules.map((r) => `<li>${r}</li>`).join('') : '';
-  $('btnRules').onclick = () => openModal('rulesModal');
+  $('rulesFull').innerHTML = info ? info.rules.map((r) => `<li>${r}</li>`).join('') : '';
+  $('btnRules').onclick = () => openSheet('sheetRules');
 
   /* ------------------------------------------------------------ */
   /* start                                                         */
   /* ------------------------------------------------------------ */
 
-  $('entryNote').classList.toggle('hidden', T.mode !== 'p2p');
+  heroArt();
   showLoading('불러오는 중…');
   T.ready()
     .then(tryResume)
     .catch((e) => {
       console.error(e);
       showEntry();
-      toast(e.message || '초기화에 실패했습니다.', true);
+      toast(e.message || '초기화 실패', true);
     });
 })();
