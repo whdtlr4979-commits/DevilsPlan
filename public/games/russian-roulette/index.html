@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>러시안 룰렛 · Plan Online</title>
-  <link rel="stylesheet" href="/css/common.css" />
-  <link rel="stylesheet" href="/games/russian-roulette/rr.css" />
+  <link rel="stylesheet" href="../../css/common.css" />
+  <link rel="stylesheet" href="rr.css" />
 </head>
 <body>
   <div class="wrap">
     <header class="topbar">
-      <a class="brand" href="/">
+      <a class="brand" href="../../">
         <div class="brand-mark">P</div>
         <div class="brand-name">PLAN ONLINE<small>← 게임 목록</small></div>
       </a>
@@ -21,10 +21,18 @@
     </header>
 
     <main class="page">
+      <!-- 로딩 -->
+      <section id="screenLoading">
+        <div class="loading"><div class="spinner"></div><div id="loadingText">불러오는 중…</div></div>
+      </section>
+
       <!-- 입장 화면 -->
       <section id="screenEntry" class="hidden">
         <h1 class="screen-title">러시안 룰렛</h1>
         <div class="muted">탄약의 위치를 추적해 격발 순간에 총알을 피하라.</div>
+        <div class="p2p-note hidden" id="entryNote">
+          <b>P2P 모드</b> — 방을 만든 사람의 브라우저가 게임 서버 역할을 합니다. 방장은 게임이 끝날 때까지 창을 닫지 마세요. (새로고침은 괜찮아요)
+        </div>
         <div class="entry">
           <div class="card">
             <h2>플레이하기</h2>
@@ -62,6 +70,9 @@
       <section id="screenLobby" class="hidden">
         <h1 class="screen-title">대기실</h1>
         <div class="muted">6명이 모이면 시작합니다. 빈자리는 봇이 채웁니다.</div>
+        <div class="p2p-note hidden" id="lobbyNote">
+          <b>P2P 모드</b> — 방장의 브라우저가 서버입니다. 방장이 창을 닫으면 방이 사라지니, 게임 중에는 창을 열어 두세요.
+        </div>
         <div class="lobby">
           <div class="card">
             <div class="room-code">
@@ -138,8 +149,12 @@
     </div>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/games.js"></script>
-  <script src="/games/russian-roulette/rr.js"></script>
+  <script src="../../config.js"></script>
+  <script src="../../js/games.js"></script>
+  <script src="../../shared/russian-roulette/engine.js"></script>
+  <script src="../../shared/russian-roulette/bot.js"></script>
+  <script src="../../shared/russian-roulette/room.js"></script>
+  <script src="net.js"></script>
+  <script src="rr.js"></script>
 </body>
 </html>

@@ -9,7 +9,7 @@ window.GAMES = [
     title: '러시안 룰렛',
     en: 'Russian Roulette',
     status: 'live',
-    url: '/games/russian-roulette/',
+    url: 'games/russian-roulette/',
     players: '6인',
     time: '15~25분',
     tags: ['추리', '심리전', '자원 관리'],

@@ -3,15 +3,27 @@
 데블스 플랜 3에 나온 게임을 친구들과 브라우저에서 실시간으로 플레이하는 웹 게임 모음입니다.
 (비공식 팬 프로젝트 — 게임 규칙만 참고했습니다.)
 
-## 실행
+## 플레이 방법은 두 가지
 
+### 1) GitHub Pages (P2P 모드, 서버 없이 바로)
+**https://whdtlr4979-commits.github.io/DevilsPlan/**
+
+- 방을 만든 사람(방장)의 브라우저가 게임 서버 역할을 하고, 다른 플레이어는 WebRTC(P2P)로 방장에게 직접 접속합니다.
+- 접속 중계(시그널링)에는 [PeerJS](https://peerjs.com) 무료 공용 서버를 사용합니다. 게임 데이터는 브라우저끼리 직접 주고받습니다.
+- 방장은 게임이 끝날 때까지 창을 닫지 마세요. 새로고침하면 방이 복구되고, 참가자는 자동으로 다시 연결됩니다.
+- 회사·학교망이나 일부 모바일 통신망처럼 P2P가 막힌 네트워크에서는 연결이 안 될 수 있습니다. (PeerJS 기본 TURN 서버로 우회를 시도합니다)
+- 방장의 브라우저가 전체 게임 상태를 갖고 있으므로, 개발자 도구를 열면 방장은 숨겨진 정보를 볼 수 있습니다. 공정성이 중요하면 아래의 서버 모드를 쓰세요.
+
+`main`에 푸시하면 GitHub Actions(`.github/workflows/pages.yml`)가 테스트 후 `public/` 폴더를 자동 배포합니다.
+처음 한 번은 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 지정해야 합니다.
+
+### 2) Node 서버 (서버 모드)
 ```bash
 npm install
 npm start        # http://localhost:3000
-npm test         # 게임 엔진 + 봇 시뮬레이션 테스트
+npm test         # 게임 엔진 / 방 로직 / 봇 시뮬레이션 테스트
 ```
-
-포트는 `PORT` 환경 변수로 바꿀 수 있습니다.
+서버가 게임 상태를 전부 갖고, 각 플레이어에게는 자신이 볼 수 있는 정보만 보냅니다. 포트는 `PORT` 환경 변수로 바꿀 수 있습니다.
 
 ## 게임
 
@@ -35,28 +47,31 @@ npm test         # 게임 엔진 + 봇 시뮬레이션 테스트
 - 3번째 크레딧 소진자가 나오는 즉시 게임이 끝납니다.
 - 격발은 총알 2발이 모두 나오면 멈춥니다.
 - 게임 중 연결이 끊긴 플레이어는 8초 뒤 봇이 대신 행동합니다. 같은 브라우저로 다시 접속하면 이어서 플레이합니다.
+- 서버 모드에서는 방장이 나가면 다른 사람에게 방장이 넘어가고, P2P 모드에서는 방이 닫힙니다.
 
 ## 구조
 
 ```
-server/
-  index.js                         Express + Socket.IO 서버
-  games/russianRoulette/
-    engine.js                      순수 게임 로직 + 플레이어별 정보 은닉(viewFor)
-    bot.js                         봇 AI (15가지 총알 배치에 대한 베이즈 추론)
-    socket.js                      방/로비/재접속/봇 진행 (네임스페이스 /russian-roulette)
-public/
+public/                            GitHub Pages 로 배포되는 정적 사이트 (서버 모드에서도 그대로 사용)
   index.html                       게임 대시보드
+  config.js                        기본 설정 (P2P 모드). 서버 모드에서는 서버가 대신 내려줌
   js/games.js                      대시보드 게임 목록 (새 게임은 여기 추가)
-  games/russian-roulette/          러시안 룰렛 클라이언트
+  shared/russian-roulette/         브라우저·Node 공용 로직
+    engine.js                      순수 게임 규칙 + 플레이어별 정보 은닉(viewFor)
+    bot.js                         봇 AI (15가지 총알 배치에 대한 베이즈 추론)
+    room.js                        방/로비/재접속/봇 진행 (전송 계층과 무관)
+  games/russian-roulette/
+    net.js                         네트워크 계층: server(Socket.IO) / p2p(PeerJS) 모드
+    rr.js, rr.css, index.html      화면
+  vendor/peerjs-1.5.4.min.js       PeerJS (MIT)
+server/
+  index.js                         Express + Socket.IO 서버 (서버 모드)
+  games/russianRoulette/socket.js  shared/room.js 를 Socket.IO 에 연결하는 어댑터
 test/                              node:test 테스트
 ```
 
-서버가 게임 상태를 전부 갖고 있고, 각 플레이어에게는 자신이 볼 수 있는 정보만 보냅니다
-(다른 사람의 크레딧, 비공개 조사 결과, 조작 금액·위치, 총알 위치는 클라이언트로 전송되지 않습니다).
-
 ### 새 게임 추가하기
-1. `server/games/<게임>/` 에 engine / socket 작성
-2. `server/index.js` 에 `require('./games/<게임>/socket')(io.of('/<게임>'))` 추가
-3. `public/games/<게임>/` 클라이언트 작성
+1. `public/shared/<게임>/` 에 engine / room 작성 (브라우저·Node 공용)
+2. `public/games/<게임>/` 에 화면 작성 (`net.js` 패턴 재사용)
+3. `server/index.js` 에 Socket.IO 네임스페이스 추가 (서버 모드용)
 4. `public/js/games.js` 에 항목 추가

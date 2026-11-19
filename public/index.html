@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Plan Online · 게임 대시보드</title>
-  <link rel="stylesheet" href="/css/common.css" />
+  <link rel="stylesheet" href="css/common.css" />
   <style>
     .hero { padding: 48px 0 28px; }
     .hero-kicker { color: var(--accent-2); font-weight: 800; letter-spacing: .18em; font-size: 12px; }
@@ -38,7 +38,7 @@
 <body>
   <div class="wrap">
     <header class="topbar">
-      <a class="brand" href="/">
+      <a class="brand" href="./">
         <div class="brand-mark">P</div>
         <div class="brand-name">PLAN ONLINE<small>데블스 플랜 3 게임 온라인 플레이</small></div>
       </a>
@@ -70,7 +70,7 @@
     </div>
   </div>
 
-  <script src="/js/games.js"></script>
+  <script src="js/games.js"></script>
   <script>
     const games = window.GAMES;
     const live = games.filter((g) => g.status === 'live');
