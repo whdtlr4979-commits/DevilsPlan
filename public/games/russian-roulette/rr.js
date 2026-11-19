@@ -2,7 +2,6 @@
   'use strict';
 
   const N = 6;
-  const STORE_KEY = 'plan:rr:session';
   const NAME_KEY = 'plan:name';
   const BASE_TITLE = document.title;
 
@@ -13,9 +12,6 @@
   const pairLabel = (i) => pairChs(i).map((c) => c + 1).join('·');
 
   const store = {
-    get() { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; } },
-    set(v) { try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch {} },
-    clear() { try { localStorage.removeItem(STORE_KEY); } catch {} },
     name() { try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; } },
     setName(n) { try { localStorage.setItem(NAME_KEY, n); } catch {} },
   };
@@ -35,8 +31,8 @@
     busy: false,
   };
 
-  const socket = io('/russian-roulette');
-  const emit = (ev, payload) => new Promise((resolve) => socket.emit(ev, payload, (res) => resolve(res || { ok: true })));
+  const T = window.RRNet.create();
+  const emit = (ev, payload) => T.request(ev, payload);
 
   /* ------------------------------------------------------------ */
   /* util                                                          */
@@ -64,9 +60,14 @@
     history.replaceState(null, '', url);
   }
 
+  function showLoading(text) {
+    $('loadingText').textContent = text;
+    showScreen('screenLoading');
+  }
+
   function showScreen(id) {
-    ['screenEntry', 'screenLobby', 'screenGame'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
-    $('btnLeave').classList.toggle('hidden', id === 'screenEntry');
+    ['screenLoading', 'screenEntry', 'screenLobby', 'screenGame'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
+    $('btnLeave').classList.toggle('hidden', id === 'screenEntry' || id === 'screenLoading');
   }
 
   const g = () => S.room && S.room.game;
@@ -98,11 +99,15 @@
   async function enter(ev, payload) {
     if (S.busy) return;
     S.busy = true;
-    const res = await emit(ev, payload);
+    showLoading(ev === 'create' ? (payload.practice ? '연습 게임을 준비하는 중…' : '방을 여는 중…') : '방에 접속하는 중…');
+    const res = ev === 'create' ? await T.create(payload) : await T.join(payload);
     S.busy = false;
-    if (!res.ok) return toast(res.error, true);
-    store.set({ code: res.code, token: res.token });
+    if (!res.ok) {
+      showEntry();
+      return toast(res.error, true);
+    }
     setUrlRoom(res.code);
+    if (!S.room) showLoading('방 정보를 받는 중…');
   }
 
   $('btnCreate').onclick = () => { const name = readName(); if (name) enter('create', { name }); };
@@ -128,42 +133,44 @@
   }
 
   async function tryResume() {
-    const session = store.get();
     const urlCode = (new URL(location.href).searchParams.get('room') || '').toUpperCase();
-    if (session && session.code && (!urlCode || urlCode === session.code)) {
-      const res = await emit('join', { code: session.code, token: session.token });
-      if (res.ok) {
-        setUrlRoom(res.code);
-        return;
-      }
-      store.clear();
+    showLoading('이전 게임에 다시 연결하는 중…');
+    const res = await T.resume(urlCode);
+    if (res.ok) {
+      setUrlRoom(res.code);
+      return;
     }
+    if (res.error) toast(res.error, true);
     showEntry();
   }
 
   $('btnLeave').onclick = async () => {
     const playing = g() && g().phase === 'playing';
     if (playing && !confirm('게임 중에 나가면 남은 차례는 봇이 대신합니다. 나갈까요?')) return;
-    await emit('leave');
-    store.clear();
+    await T.leave();
     setUrlRoom(null);
     closeModal('resultModal');
     showEntry();
   };
 
   /* ------------------------------------------------------------ */
-  /* socket                                                        */
+  /* network events                                                */
   /* ------------------------------------------------------------ */
 
-  socket.on('connect', tryResume);
-  socket.on('disconnect', () => toast('서버와 연결이 끊겼습니다. 재연결 중…', true));
-  socket.on('kicked', () => {
-    store.clear();
+  T.on('status', (d) => toast(d.message, d.state !== 'connected'));
+  T.on('kicked', () => {
     setUrlRoom(null);
+    closeModal('resultModal');
     toast('방장에 의해 퇴장되었습니다.', true);
     showEntry();
   });
-  socket.on('room', (room) => {
+  T.on('closed', (d) => {
+    setUrlRoom(null);
+    closeModal('resultModal');
+    toast((d && d.reason) || '방이 닫혔습니다.', true);
+    showEntry();
+  });
+  T.on('room', (room) => {
     S.room = room;
     onRoom();
   });
@@ -239,6 +246,7 @@
       ? `<button class="btn" id="btnAddBot" ${empty ? '' : 'disabled'}>+ 봇 추가</button>
          <button class="btn btn-primary" id="btnStart">게임 시작${empty ? ` (빈자리 ${empty}개는 봇)` : ''}</button>`
       : `<div class="muted" style="padding:10px 0">방장이 게임을 시작하기를 기다리는 중…</div>`;
+    $('lobbyNote').classList.toggle('hidden', T.mode !== 'p2p');
     renderChat($('lobbyChat'));
   }
 
@@ -258,7 +266,13 @@
     }
   });
   $('btnCopy').onclick = async () => {
-    const link = `${location.origin}/games/russian-roulette/?room=${S.room.code}`;
+    const url = new URL(location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('room', S.room.code);
+    const dev = new URLSearchParams(location.search).get('peer');
+    if (dev) url.searchParams.set('peer', dev);
+    const link = url.toString();
     try {
       await navigator.clipboard.writeText(link);
       toast('초대 링크를 복사했습니다.');
@@ -279,7 +293,7 @@
         const input = container.querySelector('input');
         const text = input.value.trim();
         if (!text) return;
-        socket.emit('chat', { text });
+        emit('chat', { text }).then((r) => !r.ok && toast(r.error, true));
         input.value = '';
       });
     }
@@ -780,4 +794,18 @@
   const info = (window.GAMES || []).find((x) => x.id === 'russian-roulette');
   $('rulesBody').innerHTML = info ? info.rules.map((r) => `<li>${r}</li>`).join('') : '';
   $('btnRules').onclick = () => openModal('rulesModal');
+
+  /* ------------------------------------------------------------ */
+  /* start                                                         */
+  /* ------------------------------------------------------------ */
+
+  $('entryNote').classList.toggle('hidden', T.mode !== 'p2p');
+  showLoading('불러오는 중…');
+  T.ready()
+    .then(tryResume)
+    .catch((e) => {
+      console.error(e);
+      showEntry();
+      toast(e.message || '초기화에 실패했습니다.', true);
+    });
 })();

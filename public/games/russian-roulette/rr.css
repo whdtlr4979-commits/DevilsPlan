@@ -191,3 +191,10 @@
   .room-code .code { font-size: 28px; }
   .chip { min-width: 0; flex: 1 1 40%; }
 }
+
+/* ---------- loading / notes ---------- */
+.loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 90px 0; color: var(--text-2); }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.p2p-note { margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 13px; color: var(--text-2); background: var(--info-soft); border: 1px solid rgba(90,169,255,.3); }
+.p2p-note b { color: var(--info); }

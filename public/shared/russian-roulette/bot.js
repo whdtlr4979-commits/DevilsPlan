@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * 러시안 룰렛 봇 AI
  *
@@ -8,7 +6,12 @@
  *  - 다른 플레이어의 조작: 어떤 인접 쌍이 바뀌었는지 모르므로 6가지 경우를 평균낸다.
  */
 
-const E = require('./engine');
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine'));
+  else root.RRBot = factory(root.RREngine);
+})(typeof self !== 'undefined' ? self : this, function (E) {
+  'use strict';
+
 const { CHAMBERS, COST, MANIP_TARGET, MANIP_MAX, mod, pairChambers } = E;
 
 const CONFIGS = [];
@@ -173,4 +176,5 @@ function decide(state, botId, rng = Math.random) {
   return publicCheck(mostUncertainPair(prob));
 }
 
-module.exports = { decide, belief };
+return { decide, belief };
+});

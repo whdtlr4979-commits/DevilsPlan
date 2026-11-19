@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * 러시안 룰렛 게임 엔진 (순수 로직, 네트워크와 무관)
  *
@@ -10,6 +8,12 @@
  *  - 인접 약실 쌍(pair) i : 약실 i 와 약실 (i+1) mod 6
  *  - 총구 회전: aim 이 시계 방향(좌석 번호 증가 방향)으로 이동
  */
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.RREngine = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
 
 const SEATS = 6;
 const CHAMBERS = 6;
@@ -323,7 +327,7 @@ function viewFor(state, viewerId) {
   };
 }
 
-module.exports = {
+return {
   SEATS,
   CHAMBERS,
   BULLETS,
@@ -346,3 +350,4 @@ module.exports = {
   viewFor,
   knowledgeFor,
 };
+});

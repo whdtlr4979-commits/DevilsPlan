@@ -2,8 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const E = require('../server/games/russianRoulette/engine');
-const bot = require('../server/games/russianRoulette/bot');
+const E = require('../public/shared/russian-roulette/engine');
+const bot = require('../public/shared/russian-roulette/bot');
 
 function seeded(seed) {
   let s = seed >>> 0;

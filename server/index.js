@@ -8,6 +8,11 @@ const { Server } = require('socket.io');
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
+
+// 서버로 실행할 때는 Socket.IO 모드. (GitHub Pages 에서는 public/config.js 가 그대로 쓰여 P2P 모드)
+app.get('/config.js', (_req, res) => {
+  res.type('application/javascript').send("window.PLAN_CONFIG = Object.assign({}, window.PLAN_CONFIG, { mode: 'server' });\n");
+});
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
@@ -18,5 +23,5 @@ const io = new Server(server);
 require('./games/russianRoulette/socket')(io.of('/russian-roulette'));
 
 server.listen(PORT, () => {
-  console.log(`Devil's Plan Online — http://localhost:${PORT}`);
+  console.log(`Plan Online — http://localhost:${PORT}`);
 });
