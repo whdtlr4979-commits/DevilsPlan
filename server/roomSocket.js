@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * Socket.IO 어댑터 — 실제 로직은 public/shared/russian-roulette/room.js (브라우저 P2P 호스트와 공용)
+ * Socket.IO 연결 — 실제 로직은 public/shared/room.js (브라우저 P2P 호스트와 공용)
+ * 게임마다 네임스페이스 하나 + 게임 어댑터 하나.
  */
-const { Room, randomCode } = require('../../../public/shared/russian-roulette/room');
+const { Room, randomCode } = require('../public/shared/room');
 
 const ROOM_IDLE_MS = 1000 * 60 * 60; // 1시간 동안 사람이 없으면 방 삭제
-const ROOM_EVENTS = ['addBot', 'kick', 'start', 'action', 'backToLobby', 'chat', 'leave'];
+const ROOM_EVENTS = ['addBot', 'kick', 'settings', 'start', 'action', 'backToLobby', 'chat', 'leave'];
 
-module.exports = function attach(nsp) {
+module.exports = function attach(nsp, adapter) {
   const rooms = new Map(); // code -> Room
   const clientRoom = new Map(); // socket.id -> code
   const send = (clientId, type, data) => nsp.to(clientId).emit(type, data);
@@ -28,7 +29,7 @@ module.exports = function attach(nsp) {
       let code;
       do code = randomCode();
       while (rooms.has(code));
-      const room = new Room({ code, send, onClose: () => rooms.delete(code) });
+      const room = new Room({ adapter, code, send, onClose: () => rooms.delete(code) });
       rooms.set(code, room);
       clientRoom.set(socket.id, code);
       const res = room.createHost(socket.id, payload || {});

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07070a" />
+  <title>경매 빙고 · Plan Online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <link rel="stylesheet" href="../../css/common.css" />
+  <link rel="stylesheet" href="../../css/app.css" />
+  <link rel="stylesheet" href="ab.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="hud">
+      <a class="icon-btn" href="../../" aria-label="게임 목록">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <div class="hud-title" id="hudTitle">경매 빙고</div>
+      <div class="hud-right">
+        <button class="icon-btn hidden" id="btnChat" aria-label="채팅">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+          <span class="badge-dot hidden" id="chatBadge"></span>
+        </button>
+        <button class="icon-btn" id="btnSound" aria-label="소리"></button>
+        <button class="icon-btn" id="btnRules" aria-label="룰">?</button>
+        <button class="icon-btn hidden" id="btnLeave" aria-label="나가기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 로딩 -->
+    <section id="screenLoading" class="screen">
+      <div class="loading"><div class="spinner"></div><div id="loadingText">불러오는 중…</div></div>
+    </section>
+
+    <!-- 입장 -->
+    <section id="screenEntry" class="screen hidden">
+      <div class="hero">
+        <svg class="hero-cyl ab-hero" viewBox="0 0 200 200" aria-hidden="true" id="heroArt"></svg>
+        <div class="hero-kicker">GAME 02</div>
+        <h1 class="hero-title">경매<br /><span>빙고</span></h1>
+        <div class="hero-sub">도형을 낙찰받아 빙고판을 채워라</div>
+      </div>
+      <div class="entry">
+        <input class="input" id="nameInput" maxlength="12" placeholder="닉네임" autocomplete="nickname" enterkeyhint="go" />
+        <button class="btn btn-primary btn-lg btn-block" id="btnCreate">방 만들기</button>
+        <div class="join">
+          <input class="input code-input" id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" enterkeyhint="go" />
+          <button class="btn btn-lg" id="btnJoin">입장</button>
+        </div>
+        <button class="btn btn-ghost btn-block" id="btnPractice">🤖 봇이랑 연습하기</button>
+      </div>
+    </section>
+
+    <!-- 대기실 -->
+    <section id="screenLobby" class="screen hidden">
+      <div class="code-card glass">
+        <div>
+          <div class="code-label">ROOM CODE</div>
+          <div class="code" id="lobbyCode">----</div>
+        </div>
+        <button class="btn btn-gold" id="btnShare">초대하기</button>
+      </div>
+      <div class="slots" id="slots"></div>
+      <div class="lobby-extra" id="lobbyExtra"></div>
+      <div class="lobby-hint" id="lobbyHint"></div>
+      <div class="lobby-foot" id="lobbyActions"></div>
+    </section>
+
+    <!-- 게임 -->
+    <section id="screenGame" class="screen hidden">
+      <div class="ab-top">
+        <div class="tb-round" id="abRound"></div>
+        <div class="ab-phase" id="abPhase"></div>
+        <div class="ab-timer" id="abTimer">
+          <svg viewBox="0 0 36 36"><circle class="tr-bg" cx="18" cy="18" r="15"/><circle class="tr-fg" id="abTimerRing" cx="18" cy="18" r="15"/></svg>
+          <span id="abTimerText"></span>
+        </div>
+      </div>
+      <div class="ab-players" id="abPlayers"></div>
+      <div class="ab-main glass" id="abMain"></div>
+      <div class="ab-bar" id="abBar"></div>
+    </section>
+  </div>
+
+  <!-- 결과 -->
+  <div class="result hidden" id="result">
+    <div class="result-inner">
+      <div class="result-kicker">GAME OVER</div>
+      <div class="result-title" id="resultTitle"></div>
+      <div class="result-sub" id="resultSub"></div>
+      <div id="resultBoard"></div>
+      <div class="result-list" id="resultList"></div>
+      <div class="result-actions" id="resultActions"></div>
+    </div>
+  </div>
+
+  <!-- 기록 / 채팅 시트 -->
+  <div class="sheet-backdrop hidden" id="sheetLog">
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <div class="tabs" id="sheetTabs">
+        <button class="tab" data-tab="log">기록</button>
+        <button class="tab" data-tab="chat">채팅</button>
+      </div>
+      <div class="sheet-body">
+        <div class="log" id="logSheet"></div>
+        <div class="chat hidden" id="chatSheet">
+          <div class="chat-list" id="chatList"></div>
+        </div>
+      </div>
+      <form class="chat-form hidden" id="chatForm">
+        <input class="input" id="chatInput" maxlength="200" placeholder="메시지" autocomplete="off" enterkeyhint="send" />
+        <button class="btn btn-primary">전송</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 내 기록 시트 -->
+  <div class="sheet-backdrop hidden" id="sheetMine">
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2>MY NOTE</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="sheet-body" id="mineBody"></div>
+    </div>
+  </div>
+
+  <!-- 룰 시트 -->
+  <div class="sheet-backdrop hidden" id="sheetRules">
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2>HOW TO PLAY</h2><button class="icon-btn" data-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="rule-goal">
+          <b>7라운드</b> 동안 도형을 낙찰받아 <b>빙고판</b>을 채워라.<br />
+          순위: <b>빙고 줄 수</b> → 채운 칸 수 → 남은 코인
+        </div>
+        <div class="rule-acts">
+          <div class="rule-act"><span class="rule-ico">🎫</span><div><div class="t">1. 도형 선택</div><div class="d">티켓 1장을 ○ △ ☆ 상자 중 하나에. 끝나면 누가 어디 넣었는지 공개</div></div></div>
+          <div class="rule-act"><span class="rule-ico">💰</span><div><div class="t">2. 입찰</div><div class="d">코인을 몰래 제출 (1원 이상). 낸 코인은 결과와 상관없이 사라져요</div></div></div>
+          <div class="rule-act"><span class="rule-ico">🔨</span><div><div class="t">3. 결과 발표</div><div class="d">상자별 최고 입찰자가 그 상자 인원 수만큼 도형 획득. 동률이면 나눠 갖고 나머지는 버림</div></div></div>
+        </div>
+        <ul class="rule-notes">
+          <li>코인: <b>1원×3 · 2원×3 · 3원×2 · 5원×1 · 10원×1</b> (총 30원). 쪼갤 수 없어요</li>
+          <li>결과는 <b>낙찰가만</b> 공개. 낙찰가가 가장 높은 상자는 <b>SECRET</b></li>
+          <li>누가 낙찰받았는지는 <b>본인에게도 비밀</b>! 끝나면 공개돼요</li>
+          <li>모두의 빙고판은 같아요. 넘치는 도형은 버리고 <b>빙고가 가장 많이 나오게 자동 배치</b></li>
+        </ul>
+        <div class="rule-board" id="ruleBoard"></div>
+        <details class="rule-full">
+          <summary>전체 룰 보기</summary>
+          <ol id="rulesFull"></ol>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <script src="../../config.js"></script>
+  <script src="../../js/games.js"></script>
+  <script src="../../shared/auction-bingo/engine.js"></script>
+  <script src="../../shared/auction-bingo/bot.js"></script>
+  <script src="../../shared/auction-bingo/adapter.js"></script>
+  <script src="../../shared/room.js"></script>
+  <script src="../../js/net.js"></script>
+  <script src="../../js/shell.js"></script>
+  <script src="ab.js"></script>
+</body>
+</html>

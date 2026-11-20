@@ -1,5 +1,7 @@
 /**
- * 네트워크 계층 — 화면 코드(rr.js)는 이 인터페이스만 사용한다.
+ * 공용 네트워크 계층 — 각 게임 화면은 이 인터페이스만 사용한다.
+ *
+ *  const net = PlanNet.create({ gameId: 'russian-roulette', peerTag: 'rr', adapter: RRAdapter })
  *
  *  ready()                  라이브러리 로드/연결
  *  create({name, practice}) 방 만들기 → {ok, code, token}
@@ -11,7 +13,7 @@
  *
  * 모드
  *  - server : Node 서버(Socket.IO). `npm start` 로 실행했을 때
- *  - p2p    : 정적 호스팅(GitHub Pages). 방장 브라우저가 Room(공용 로직)을 직접 돌리고
+ *  - p2p    : 정적 호스팅(GitHub Pages). 방장 브라우저가 PlanRoom(공용 로직)을 직접 돌리고
  *             다른 플레이어는 PeerJS(WebRTC 데이터 채널)로 방장에게 접속한다.
  */
 (function () {
@@ -19,10 +21,13 @@
 
   const CONFIG = window.PLAN_CONFIG || { mode: 'p2p' };
   const MODE = CONFIG.mode === 'server' ? 'server' : 'p2p';
-  const SESSION_KEY = 'plan:rr:session:' + MODE;
-  const HOST_ROOM_KEY = 'plan:rr:hostroom';
-  const PEER_PREFIX = 'devilsplan-rr-v1-';
-  const PEERJS_SRC = '../../vendor/peerjs-1.5.4.min.js';
+  // 이 파일(js/net.js) 기준으로 vendor 경로를 계산 → 어느 페이지에서 불러도 동작
+  const PEERJS_SRC = new URL('../vendor/peerjs-1.5.4.min.js', document.currentScript.src).href;
+  let SESSION_KEY;
+  let HOST_ROOM_KEY;
+  let PEER_PREFIX;
+  let GAME_ID;
+  let ADAPTER;
 
   const ls = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -60,7 +65,7 @@
 
     async ready() {
       if (!window.io) await loadScript('/socket.io/socket.io.js');
-      const socket = (this.socket = window.io('/russian-roulette'));
+      const socket = (this.socket = window.io('/' + GAME_ID));
       socket.on('room', (d) => this.emit('room', d));
       socket.on('kicked', () => { this.drop(); this.emit('kicked'); });
       socket.on('closed', (d) => { this.drop(); this.emit('closed', d); });
@@ -144,7 +149,7 @@
 
     async ready() {
       if (!window.Peer) await loadScript(PEERJS_SRC);
-      if (!window.RRRoom) throw new Error('게임 로직을 불러오지 못했습니다.');
+      if (!window.PlanRoom || !ADAPTER) throw new Error('게임 로직을 불러오지 못했습니다.');
       window.addEventListener('beforeunload', () => {
         if (this.peer && !this.peer.destroyed) this.peer.destroy(); // ID 를 즉시 반납 → 새로고침 후 같은 코드로 복구
       });
@@ -199,6 +204,7 @@
     makeRoom(code, saved) {
       let room = null;
       const opts = {
+        adapter: ADAPTER,
         code,
         send: this.hostSend,
         hostIsServer: true,
@@ -209,7 +215,7 @@
           setTimeout(() => this.room === room && this.teardown(), 600);
         },
       };
-      room = saved ? window.RRRoom.Room.restore(saved, opts) : new window.RRRoom.Room(opts);
+      room = saved ? window.PlanRoom.Room.restore(saved, opts) : new window.PlanRoom.Room(opts);
       return room;
     }
 
@@ -262,15 +268,15 @@
 
     async create({ name, practice } = {}) {
       this.teardown();
-      if (!window.RRRoom.cleanName(name)) return { ok: false, error: '닉네임을 입력하세요.' };
+      if (!window.PlanRoom.cleanName(name)) return { ok: false, error: '닉네임을 입력하세요.' };
       this.practice = !!practice;
       let code;
       let peer = null;
       if (practice) {
-        code = window.RRRoom.randomCode(); // 연습은 혼자 하므로 네트워크 불필요
+        code = window.PlanRoom.randomCode(); // 연습은 혼자 하므로 네트워크 불필요
       } else {
         for (let i = 0; ; i++) {
-          code = window.RRRoom.randomCode();
+          code = window.PlanRoom.randomCode();
           try {
             peer = await this.openHostPeer(code);
             break;
@@ -481,8 +487,16 @@
     }
   }
 
-  window.RRNet = {
+  window.PlanNet = {
     mode: MODE,
-    create: () => (MODE === 'server' ? new ServerTransport() : new P2PTransport()),
+    /** @param {{gameId:string, peerTag:string, adapter:object}} o */
+    create(o) {
+      GAME_ID = o.gameId;
+      ADAPTER = o.adapter;
+      SESSION_KEY = `plan:${o.gameId}:session:${MODE}`;
+      HOST_ROOM_KEY = `plan:${o.gameId}:hostroom`;
+      PEER_PREFIX = `devilsplan-${o.peerTag}-v1-`;
+      return MODE === 'server' ? new ServerTransport() : new P2PTransport();
+    },
   };
 })();

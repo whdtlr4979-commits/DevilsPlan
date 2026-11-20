@@ -31,6 +31,7 @@ npm test         # 게임 엔진 / 방 로직 / 봇 시뮬레이션 테스트
 | 게임 | 상태 | 인원 |
 |---|---|---|
 | 러시안 룰렛 | ✅ 플레이 가능 | 6인 (빈자리는 봇) |
+| 경매 빙고 | ✅ 플레이 가능 | 3~8인 (5명까지 봇이 채움) |
 
 ### 러시안 룰렛 플레이 방법
 1. 닉네임 입력 → **방 만들기** → **초대 링크 복사**로 친구 초대 (또는 4자리 코드로 입장)
@@ -53,29 +54,42 @@ npm test         # 게임 엔진 / 방 로직 / 봇 시뮬레이션 테스트
 - 게임 중 연결이 끊긴 플레이어는 8초 뒤 봇이 대신 행동합니다. 같은 브라우저로 다시 접속하면 이어서 플레이합니다.
 - 서버 모드에서는 방장이 나가면 다른 사람에게 방장이 넘어가고, P2P 모드에서는 방이 닫힙니다.
 
+### 경매 빙고
+7라운드 동안 ① 도형 상자(○△☆)에 티켓 넣기 → ② 코인 비공개 입찰 → ③ 낙찰가 발표를 반복하고, 끝나면 획득한 도형을 빙고판에 자동 배치해 순위를 정합니다.
+
+**온라인 버전 해석 (원문에 명시되지 않은 부분)**
+- 공통 빙고판: 가로·세로 줄마다 세 도형이 하나씩 (`○△☆ / △☆○ / ☆○△`)
+- 제한 시간은 방장이 대기실에서 선택: 빠름 30초/45초, 보통 1분/1분 30초, 여유 3분/5분 (원작은 15분/20분)
+- 시간 안에 티켓을 안 넣으면 무작위 상자, 입찰을 안 하면 0원 (최하위)
+- 한 상자에서 아무도 1원 이상 내지 않으면 유찰 (아무도 획득하지 못함)
+- 낙찰가가 가장 높은 도형이 여럿(동률)이면 모두 시크릿
+- 순위의 '남은 코인'은 남은 금액(원) 기준
+- 봇도 공개 정보(선택 결과, 공개된 낙찰가)와 자기 입찰만 보고 판단
+
 ## 구조
 
 ```
-public/                            GitHub Pages 로 배포되는 정적 사이트 (서버 모드에서도 그대로 사용)
-  index.html                       게임 대시보드
-  config.js                        기본 설정 (P2P 모드). 서버 모드에서는 서버가 대신 내려줌
-  js/games.js                      대시보드 게임 목록 (새 게임은 여기 추가)
-  shared/russian-roulette/         브라우저·Node 공용 로직
-    engine.js                      순수 게임 규칙 + 플레이어별 정보 은닉(viewFor)
-    bot.js                         봇 AI (15가지 총알 배치에 대한 베이즈 추론)
-    room.js                        방/로비/재접속/봇 진행 (전송 계층과 무관)
-  games/russian-roulette/
-    net.js                         네트워크 계층: server(Socket.IO) / p2p(PeerJS) 모드
-    rr.js, rr.css, index.html      화면
-  vendor/peerjs-1.5.4.min.js       PeerJS (MIT)
+public/                              GitHub Pages 로 배포되는 정적 사이트 (서버 모드에서도 그대로 사용)
+  index.html                         게임 선택 대시보드
+  config.js                          기본 설정 (P2P 모드). 서버 모드에서는 서버가 대신 내려줌
+  css/common.css, css/app.css        디자인 시스템 / 공용 게임 레이아웃
+  js/games.js                        대시보드 게임 목록
+  js/net.js                          네트워크 계층: server(Socket.IO) / p2p(PeerJS)
+  js/shell.js                        공용 앱 셸: 입장·대기실·채팅·룰·효과음·재접속
+  shared/room.js                     공용 방 로직 (브라우저 P2P 호스트·Node 서버 공용)
+  shared/<게임>/engine.js            순수 게임 규칙 + 플레이어별 정보 은닉
+  shared/<게임>/bot.js               봇 AI (자기 시점 정보만 사용)
+  shared/<게임>/adapter.js           게임 규칙을 공용 방에 연결
+  games/<게임>/                      게임 화면
+  vendor/peerjs-1.5.4.min.js         PeerJS (MIT)
 server/
-  index.js                         Express + Socket.IO 서버 (서버 모드)
-  games/russianRoulette/socket.js  shared/room.js 를 Socket.IO 에 연결하는 어댑터
-test/                              node:test 테스트
+  index.js                           Express + Socket.IO 서버 (서버 모드)
+  roomSocket.js                      공용 방을 Socket.IO 네임스페이스에 연결
+test/                                node:test 테스트
 ```
 
 ### 새 게임 추가하기
-1. `public/shared/<게임>/` 에 engine / room 작성 (브라우저·Node 공용)
-2. `public/games/<게임>/` 에 화면 작성 (`net.js` 패턴 재사용)
-3. `server/index.js` 에 Socket.IO 네임스페이스 추가 (서버 모드용)
+1. `public/shared/<게임>/` 에 `engine.js`, `bot.js`, `adapter.js` 작성 (어댑터 인터페이스는 `shared/room.js` 주석 참고)
+2. `public/games/<게임>/` 에 화면 작성 — `js/shell.js` 를 쓰면 입장·대기실·채팅은 공짜 (경매 빙고 참고)
+3. `server/index.js` 에 `attachRoom(io.of('/<게임>'), require(어댑터))` 한 줄 추가
 4. `public/js/games.js` 에 항목 추가

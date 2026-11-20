@@ -1,22 +1,35 @@
 /**
- * 러시안 룰렛 방(로비 + 게임 진행) — 전송 계층과 무관
+ * 공용 게임 방 (로비 + 게임 진행) — 게임 규칙과 전송 계층 모두와 무관
+ *
+ * 게임마다 '어댑터'를 넘긴다. (예: shared/russian-roulette/adapter.js)
+ *  adapter = {
+ *    id, minPlayers, maxPlayers,
+ *    fillTo(count, settings)          시작할 때 봇으로 채울 목표 인원
+ *    defaultSettings, normalizeSettings(raw)   (선택) 방장이 바꾸는 방 설정
+ *    create(players, settings, now)   새 게임 상태
+ *    isEnded(state)
+ *    view(state, viewerId, now)       플레이어별 화면 (정보 은닉은 어댑터 책임)
+ *    act(state, playerId, action, now) → {ok} | {ok:false, error}
+ *    next(state, ctx)                 다음 자동 진행 {at, run() → changed?} | null (봇, 시간 초과 등)
+ *    startMessage(state), endMessage(state)
+ *  }
  *
  * 브라우저(P2P 호스트)와 Node 서버(Socket.IO)에서 똑같이 사용한다.
- * 클라이언트는 문자열 clientId 로 식별하며, 메시지는 생성자에 넘긴 send(clientId, type, data) 로 보낸다.
+ * 클라이언트는 문자열 clientId 로 식별하며, 메시지는 send(clientId, type, data) 로 보낸다.
  *  보내는 메시지: 'room'(방 상태), 'kicked', 'closed'
  */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine'), require('./bot'));
-  else root.RRRoom = factory(root.RREngine, root.RRBot);
-})(typeof self !== 'undefined' ? self : this, function (engine, bot) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.PlanRoom = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const MAX_PLAYERS = engine.SEATS;
-  const BOT_DELAY_MS = 1500;
-  const DISCONNECTED_DELAY_MS = 8000; // 접속이 끊긴 플레이어는 이 시간 후 봇이 대신 진행
-  const PASS_DELAY_MS = [1800, 4200]; // 크레딧 0 → 자동 패스. 생각하는 척 무작위로 기다려 크레딧 소진을 숨긴다
+  const DEFAULT_OPTS = {
+    botDelay: 1500, // 봇이 생각하는 시간
+    disconnectDelay: 8000, // 접속이 끊긴 플레이어는 이 시간 후 봇이 대신 진행
+  };
   const CHAT_LIMIT = 60;
-  const BOT_NAMES = ['알파봇', '베타봇', '감마봇', '델타봇', '제타봇', '오메가'];
+  const BOT_NAMES = ['알파봇', '베타봇', '감마봇', '델타봇', '제타봇', '오메가', '시그마', '람다봇'];
   const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
   const webcrypto =
@@ -54,21 +67,24 @@
   class Room {
     /**
      * @param {object} o
+     * @param {object} o.adapter     게임 어댑터
      * @param {string} o.code
      * @param {(clientId:string, type:string, data?:any) => void} o.send
      * @param {() => void} [o.onClose]   방이 사라질 때
      * @param {() => void} [o.onChange]  상태가 바뀔 때 (저장용)
      * @param {boolean} [o.hostIsServer] P2P: 방장 브라우저가 서버이므로 방장이 나가면 방이 닫힌다
+     *  그 밖의 값(botDelay, disconnectDelay, 게임별 옵션)은 어댑터의 next() 에 ctx.opts 로 전달된다.
      */
     constructor(o) {
+      if (!o.adapter) throw new Error('adapter 가 필요합니다.');
+      this.adapter = o.adapter;
       this.code = o.code;
       this.send = o.send;
       this.onClose = o.onClose || null;
       this.onChange = o.onChange || null;
       this.hostIsServer = !!o.hostIsServer;
-      this.botDelay = o.botDelay ?? BOT_DELAY_MS;
-      this.disconnectDelay = o.disconnectDelay ?? DISCONNECTED_DELAY_MS;
-      this.passDelay = o.passDelay ?? PASS_DELAY_MS;
+      this.opts = Object.assign({}, DEFAULT_OPTS, this.adapter.defaultOpts, o);
+      this.settings = Object.assign({}, this.adapter.defaultSettings);
       this.hostId = null;
       this.players = [];
       this.game = null;
@@ -83,6 +99,9 @@
 
     /* ---------------- 헬퍼 ---------------- */
 
+    get maxPlayers() {
+      return this.adapter.maxPlayers;
+    }
     humans() {
       return this.players.filter((p) => !p.isBot);
     }
@@ -95,21 +114,31 @@
     hasConnectedHumans() {
       return this.humans().some((p) => p.connected);
     }
+    isPlaying() {
+      return !!this.game && !this.adapter.isEnded(this.game);
+    }
+    phase() {
+      return !this.game ? 'lobby' : this.adapter.isEnded(this.game) ? 'ended' : 'playing';
+    }
 
     view(viewerId) {
       return {
+        gameId: this.adapter.id,
         code: this.code,
         hostId: this.hostId,
         meId: viewerId,
         gameNo: this.gameNo,
-        phase: this.game ? this.game.phase : 'lobby',
+        phase: this.phase(),
+        minPlayers: this.adapter.minPlayers,
+        maxPlayers: this.adapter.maxPlayers,
+        settings: this.settings,
         players: this.players.map((p) => ({
           id: p.id,
           name: p.name,
           isBot: p.isBot,
           connected: p.isBot ? true : p.connected,
         })),
-        game: this.game ? engine.viewFor(this.game, viewerId) : null,
+        game: this.game ? this.adapter.view(this.game, viewerId, Date.now()) : null,
         chat: this.chat,
       };
     }
@@ -123,49 +152,53 @@
     }
 
     systemChat(text) {
+      if (!text) return;
       this.chat.push({ system: true, text, at: Date.now() });
       if (this.chat.length > CHAT_LIMIT) this.chat.shift();
     }
 
+    ctx() {
+      return {
+        now: Date.now(),
+        opts: this.opts,
+        isBot: (id) => {
+          const p = this.findPlayer(id);
+          return !!p && p.isBot;
+        },
+        isConnected: (id) => {
+          const p = this.findPlayer(id);
+          return !!p && (p.isBot || p.connected);
+        },
+      };
+    }
+
+    /** 어댑터가 알려준 다음 자동 진행(봇 행동, 시간 초과 등)을 예약 */
     schedule() {
       clearTimeout(this.timer);
       this.timer = null;
-      const g = this.game;
-      if (this.closed || !g || g.phase !== 'playing') return;
-      const pid = engine.currentPlayerId(g);
-      const p = this.findPlayer(pid);
-      if (!p) return;
-      if (p.isBot || !p.connected) {
-        this.timer = setTimeout(() => this.autoPlay(pid), p.isBot ? this.botDelay : this.disconnectDelay);
-      } else if (g.players[pid].credits === 0) {
-        const [lo, hi] = Array.isArray(this.passDelay) ? this.passDelay : [this.passDelay, this.passDelay];
-        this.timer = setTimeout(() => this.autoPass(pid), lo + Math.random() * (hi - lo));
-      }
-    }
-
-    autoPass(pid) {
-      const g = this.game;
-      if (this.closed || !g || g.phase !== 'playing' || engine.currentPlayerId(g) !== pid) return;
-      if (engine.applyAction(g, pid, { type: 'pass' }).ok) this.changed();
-    }
-
-    autoPlay(pid) {
-      const g = this.game;
-      if (this.closed || !g || g.phase !== 'playing' || engine.currentPlayerId(g) !== pid) return;
-      const p = this.findPlayer(pid);
-      if (p && !p.isBot && p.connected) return; // 그 사이에 재접속
-      let res = engine.applyAction(g, pid, bot.decide(g, pid));
-      if (!res.ok) res = engine.applyAction(g, pid, { type: 'publicCheck', pair: 0 }); // 안전장치
-      if (!res.ok) engine.applyAction(g, pid, { type: 'manip', amount: 1, pair: 0 });
-      this.changed();
+      if (this.closed || !this.isPlaying()) return;
+      const plan = this.adapter.next(this.game, this.ctx());
+      if (!plan) return;
+      const delay = Math.max(0, plan.at - Date.now());
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        if (this.closed || !this.isPlaying()) return;
+        let changed = false;
+        try {
+          changed = plan.run();
+        } catch (e) {
+          console.error(e);
+        }
+        if (changed) this.changed();
+        else this.schedule();
+      }, delay);
     }
 
     changed() {
       this.lastActive = Date.now();
-      if (this.game && this.game.phase === 'ended' && !this.endAnnounced) {
+      if (this.game && this.adapter.isEnded(this.game) && !this.endAnnounced) {
         this.endAnnounced = true;
-        const names = this.game.result.eliminated.map((id) => this.game.players[id].name);
-        this.systemChat(`게임 종료! 탈락: ${names.join(', ')}`);
+        this.systemChat(this.adapter.endMessage && this.adapter.endMessage(this.game));
       }
       this.broadcast();
       this.schedule();
@@ -219,11 +252,12 @@
     }
 
     startGame() {
-      while (this.players.length < MAX_PLAYERS) this.addBotPlayer();
+      const target = Math.min(this.maxPlayers, this.adapter.fillTo(this.players.length, this.settings));
+      while (this.players.length < target) this.addBotPlayer();
       this.gameNo += 1;
-      this.game = engine.createGame(this.players.map((p) => ({ id: p.id, name: p.name })));
+      this.game = this.adapter.create(this.players.map((p) => ({ id: p.id, name: p.name })), this.settings, Date.now());
       this.endAnnounced = false;
-      this.systemChat('게임이 시작되었습니다. 자리 추첨 완료!');
+      this.systemChat(this.adapter.startMessage ? this.adapter.startMessage(this.game) : '게임이 시작되었습니다.');
     }
 
     /* ---------------- 공개 API ---------------- */
@@ -236,7 +270,11 @@
       this.hostId = player.id;
       this.bind(clientId, player);
       this.systemChat(`${n} 님이 방을 만들었습니다.`);
-      if (practice) this.startGame();
+      if (practice) {
+        const want = this.adapter.practicePlayers || this.adapter.minPlayers;
+        while (this.players.length < want) this.addBotPlayer();
+        this.startGame();
+      }
       this.changed();
       return ok({ code: this.code, playerId: player.id, token: player.token });
     }
@@ -254,11 +292,11 @@
       }
       const n = cleanName(name);
       if (!n) return fail('닉네임을 입력하세요.');
-      if (this.game && this.game.phase === 'playing') return fail('이미 게임이 진행 중입니다.');
+      if (this.isPlaying()) return fail('이미 게임이 진행 중입니다.');
       if (this.players.some((p) => p.name === n)) return fail('이미 사용 중인 닉네임입니다.');
-      if (this.players.length >= MAX_PLAYERS) {
+      if (this.players.length >= this.maxPlayers) {
         const botIdx = this.players.findIndex((p) => p.isBot);
-        if (botIdx < 0) return fail('방이 가득 찼습니다. (최대 6명)');
+        if (botIdx < 0) return fail(`방이 가득 찼습니다. (최대 ${this.maxPlayers}명)`);
         this.players.splice(botIdx, 1); // 봇 한 명을 내보낸다
       }
       const player = { id: newId(), name: n, token: newToken(), isBot: false, connected: true };
@@ -280,14 +318,14 @@
       const player = this.playerOf(clientId);
       if (!player) return fail('방에 참가하고 있지 않습니다.');
       const isHost = this.hostId === player.id;
-      const playing = this.game && this.game.phase === 'playing';
+      const playing = this.isPlaying();
       payload = payload || {};
 
       switch (ev) {
         case 'addBot': {
           if (!isHost) return fail('방장만 할 수 있습니다.');
           if (playing) return fail('게임 중에는 할 수 없습니다.');
-          if (this.players.length >= MAX_PLAYERS) return fail('자리가 없습니다.');
+          if (this.players.length >= this.maxPlayers) return fail('자리가 없습니다.');
           this.addBotPlayer();
           this.changed();
           return ok();
@@ -303,6 +341,15 @@
           this.changed();
           return ok();
         }
+        case 'settings': {
+          if (!isHost) return fail('방장만 바꿀 수 있습니다.');
+          if (playing) return fail('게임 중에는 바꿀 수 없습니다.');
+          const next = this.adapter.normalizeSettings ? this.adapter.normalizeSettings(payload) : null;
+          if (!next) return fail('잘못된 설정입니다.');
+          this.settings = next;
+          this.changed();
+          return ok();
+        }
         case 'start': {
           if (!isHost) return fail('방장만 시작할 수 있습니다.');
           if (playing) return fail('이미 진행 중입니다.');
@@ -312,13 +359,13 @@
         }
         case 'action': {
           if (!this.game) return fail('게임을 찾을 수 없습니다.');
-          const res = engine.applyAction(this.game, player.id, payload);
+          const res = this.adapter.act(this.game, player.id, payload, Date.now());
           if (res.ok) this.changed();
           return res;
         }
         case 'backToLobby': {
           if (!isHost) return fail('방장만 할 수 있습니다.');
-          if (!this.game || this.game.phase !== 'ended') return fail('게임이 끝난 뒤에만 가능합니다.');
+          if (!this.game || !this.adapter.isEnded(this.game)) return fail('게임이 끝난 뒤에만 가능합니다.');
           this.game = null;
           this.humans()
             .filter((p) => !p.connected)
@@ -347,7 +394,7 @@
             player.connected = false;
             player.clientId = null;
             player.token = null;
-            this.systemChat(`${player.name} 님이 나갔습니다. 남은 차례는 봇이 대신합니다.`);
+            this.systemChat(`${player.name} 님이 나갔습니다. 남은 진행은 봇이 대신합니다.`);
             if (isHost) {
               const next = this.humans().find((p) => p.connected);
               if (next) this.hostId = next.id;
@@ -373,10 +420,12 @@
 
     serialize() {
       return {
-        v: 1,
+        v: 2,
+        gameId: this.adapter.id,
         code: this.code,
         hostId: this.hostId,
         players: this.players.map((p) => ({ id: p.id, name: p.name, token: p.token || null, isBot: p.isBot })),
+        settings: this.settings,
         game: this.game,
         chat: this.chat,
         gameNo: this.gameNo,
@@ -388,6 +437,7 @@
       const room = new Room(Object.assign({}, opts, { code: data.code }));
       room.hostId = data.hostId;
       room.players = data.players.map((p) => Object.assign({}, p, { connected: !!p.isBot, clientId: null }));
+      if (data.settings) room.settings = data.settings;
       room.game = data.game;
       room.chat = data.chat || [];
       room.gameNo = data.gameNo || 0;
@@ -396,5 +446,5 @@
     }
   }
 
-  return { Room, randomCode, cleanName, MAX_PLAYERS };
+  return { Room, randomCode, cleanName, BOT_NAMES };
 });
