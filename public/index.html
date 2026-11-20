@@ -40,10 +40,19 @@
     @media (hover: hover) { .gc.live:hover { border-color: rgba(255,46,77,.7); transform: translateY(-2px); } }
     .gc-art { position: absolute; right: -36px; top: -30px; width: 210px; height: 210px; z-index: -1; opacity: .95; }
     .gc-art .spin { transform-origin: 100px 100px; animation: spin 24s linear infinite; }
+    .gc-art.bingo { right: -26px; top: -20px; width: 190px; height: 190px; }
+    .gc-art .tilt { transform-origin: 100px 100px; transform: rotate(12deg); }
+    .gc.live.auction-bingo {
+      background: radial-gradient(90% 120% at 100% 0%, rgba(77,163,255,.42) 0%, transparent 55%), linear-gradient(160deg, #081427 0%, #0d0d13 70%);
+      border-color: rgba(77,163,255,.35); box-shadow: 0 20px 50px -20px rgba(77,163,255,.4);
+    }
+    .gc.live.auction-bingo .gc-play { background: linear-gradient(180deg, #5cb0ff, #2a7de0); box-shadow: 0 8px 22px -4px rgba(77,163,255,.6); }
+    .gc.live.auction-bingo .chip-red { background: var(--blue-soft); color: var(--blue); border-color: rgba(77,163,255,.35); }
     @keyframes spin { to { transform: rotate(360deg); } }
     .gc-no { font-family: var(--mono); font-size: 11px; color: var(--text-3); letter-spacing: .1em; }
     .gc h2 { font-family: var(--display); font-weight: 400; font-size: 32px; margin: 2px 0 4px; letter-spacing: .01em; line-height: 1.1; }
     .gc p { margin: 0 0 12px; color: var(--text-2); font-size: 14px; }
+    .gc.live p { max-width: 60%; text-shadow: 0 1px 8px rgba(0,0,0,.8); }
     .gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .gc-meta { display: flex; gap: 6px; flex-wrap: wrap; }
     .gc-play {
@@ -88,6 +97,18 @@
         }).join('')}
         <circle cx="100" cy="100" r="12" fill="#0b0b10" stroke="#3a3a48" stroke-width="3"/>
       </g></svg>`;
+    const SH = {
+      circle: '<circle cx="12" cy="12" r="8.2"/>',
+      triangle: '<path d="M12 3.6 20.8 19.4H3.2z"/>',
+      star: '<path d="M12 2.6l2.75 5.75 6.3.85-4.6 4.35 1.15 6.25L12 16.8l-5.6 3 1.15-6.25-4.6-4.35 6.3-.85z"/>',
+    };
+    const COL = { circle: '#4da3ff', triangle: '#2ee6a0', star: '#ffc542' };
+    const BOARD = ['circle', 'triangle', 'star', 'triangle', 'star', 'circle', 'star', 'circle', 'triangle'];
+    const bingoArt = `<svg class="gc-art bingo" viewBox="0 0 200 200" aria-hidden="true"><g class="tilt">${BOARD.map((s, i) => {
+      const x = 22 + (i % 3) * 54, y = 22 + Math.floor(i / 3) * 54, on = [2, 4, 6, 0, 8].includes(i);
+      return `<rect x="${x}" y="${y}" width="48" height="48" rx="11" fill="${on ? 'rgba(255,255,255,.07)' : '#101016'}" stroke="${on ? COL[s] : '#2e2e3a'}" stroke-width="2.5"/>` +
+        `<g transform="translate(${x + 8} ${y + 8}) scale(1.33)" fill="${on ? COL[s] : 'none'}" stroke="${COL[s]}" stroke-width="2.2" stroke-linejoin="round" opacity="${on ? 1 : .5}">${SH[s]}</g>`;
+    }).join('')}<line x1="160" y1="40" x2="40" y2="160" stroke="#ff2e4d" stroke-width="7" stroke-linecap="round"/></g></svg>`;
     const play = '<svg viewBox="0 0 24 24" fill="#fff"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
 
     document.getElementById('games').innerHTML = window.GAMES.map((g, i) => {
@@ -95,8 +116,8 @@
       if (g.status !== 'live') {
         return `<div class="gc soon"><div class="lock">🔒</div><div class="gc-no">${no}</div><h2>${esc(g.title)}</h2></div>`;
       }
-      return `<a class="gc live" href="${g.url}">
-        ${g.id === 'russian-roulette' ? art : ''}
+      return `<a class="gc live ${g.id}" href="${g.url}">
+        ${g.id === 'russian-roulette' ? art : g.id === 'auction-bingo' ? bingoArt : ''}
         <div class="gc-no">${no}</div>
         <h2>${esc(g.title)}</h2>
         <p>${esc(g.summary)}</p>

@@ -133,7 +133,7 @@
     resultShown: false,
   };
 
-  const T = window.RRNet.create();
+  const T = window.PlanNet.create({ gameId: 'russian-roulette', peerTag: 'rr', adapter: window.RRAdapter });
   const emit = (ev, payload) => T.request(ev, payload);
 
   const g = () => S.room && S.room.game;

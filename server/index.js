@@ -20,7 +20,9 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 // 게임별 네임스페이스. 새 게임을 추가할 때 여기에 한 줄씩 추가한다.
-require('./games/russianRoulette/socket')(io.of('/russian-roulette'));
+const attachRoom = require('./roomSocket');
+attachRoom(io.of('/russian-roulette'), require('../public/shared/russian-roulette/adapter'));
+attachRoom(io.of('/auction-bingo'), require('../public/shared/auction-bingo/adapter'));
 
 server.listen(PORT, () => {
   console.log(`Plan Online — http://localhost:${PORT}`);
