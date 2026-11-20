@@ -20,10 +20,16 @@
   const shp = (s, cls = '') => `<svg class="shp shp-${s} ${cls}" viewBox="0 0 24 24" aria-label="${SHAPE_KO[s]}">${SHAPE_PATH[s]}</svg>`;
   const coinHtml = (v, extra = '') => `<span class="coin coin-${v} ${extra}">${v}</span>`;
 
-  /** 3×3 빙고판. filled: 채운 칸 인덱스, lines: 완성된 줄 */
-  function boardHtml(filled = [], lines = [], cls = '') {
+  /** 3×3 빙고판. filled: 채운 칸 인덱스, lines: 완성된 줄, memo: 내가 메모한 칸, tap: 칸을 누를 수 있음 */
+  function boardHtml(filled = [], lines = [], cls = '', opt = {}) {
     const set = new Set(filled);
-    const cells = BOARD.map((s, i) => `<div class="cell ${set.has(i) ? 'on' : ''}">${shp(s, set.has(i) ? 'fill' : '')}</div>`).join('');
+    const memo = new Set(opt.memo || []);
+    const cells = BOARD.map((s, i) => {
+      const on = set.has(i);
+      const m = memo.has(i);
+      const tag = opt.tap ? 'button' : 'div';
+      return `<${tag} class="cell ${on ? 'on' : ''} ${m ? 'memo' : ''}" ${opt.tap ? `data-cell="${i}" aria-label="${SHAPE_KO[s]} 칸"` : ''}>${shp(s, on || m ? 'fill' : '')}${m ? '<i class="memo-mark">✓</i>' : ''}</${tag}>`;
+    }).join('');
     const strokes = lines.map((l) => {
       const p = (i) => [(i % 3) + 0.5, Math.floor(i / 3) + 0.5];
       const [a, b] = [p(l[0]), p(l[2])];
@@ -60,6 +66,24 @@
     resultShown: false,
   };
   let api = null;
+
+  /* 내 빙고판 메모 (나만 보는 추측 표시, 이 기기에만 저장) */
+  const MEMO_KEY = 'plan:auction-bingo:memo';
+  const memoKey = () => (api && api.room ? `${api.room.code}:${api.room.gameNo}` : '');
+  function memoGet() {
+    try {
+      const m = JSON.parse(localStorage.getItem(MEMO_KEY));
+      return m && m.key === memoKey() ? m.cells : [];
+    } catch {
+      return [];
+    }
+  }
+  function memoToggle(i) {
+    const cells = new Set(memoGet());
+    if (cells.has(i)) cells.delete(i);
+    else cells.add(i);
+    try { localStorage.setItem(MEMO_KEY, JSON.stringify({ key: memoKey(), cells: [...cells] })); } catch {}
+  }
 
   const g = () => api && api.room && api.room.game;
   const phaseLabel = { choose: '도형 선택', bid: '입찰', result: '결과 발표', ended: '게임 종료' };
@@ -161,7 +185,7 @@
       const me = p.id === api.meId();
       let badge = '';
       if (active) badge = p.submitted ? '<i class="pb ok">✓</i>' : '<i class="pb wait"><b></b><b></b><b></b></i>';
-      const choice = p.choice && (game.phase !== 'choose' || me) ? `<span class="pc">${shp(p.choice, 'fill')}</span>` : '';
+      const choice = p.choice ? `<span class="pc">${shp(p.choice, 'fill')}</span>` : '';
       return `<div class="pl ${me ? 'me' : ''} ${rp.connected === false ? 'off' : ''} ${active && p.submitted ? 'done' : ''}">
         <div class="pa">${rp.isBot ? '🤖' : esc(p.name.slice(0, 1))}${choice}${badge}</div>
         <div class="pn">${me ? '나' : esc(p.name)}</div></div>`;
@@ -179,8 +203,10 @@
     let h = `<div class="ab-q">${done ? '티켓을 넣었어요' : '어느 상자에 티켓을 넣을까?'}</div><div class="boxes">`;
     for (const s of SHAPES) {
       const on = (done ? me.choice : L.sel) === s;
+      const who = game.players.filter((p) => p.choice === s);
       h += `<button class="box box-${s} ${on ? 'on' : ''}" data-shape="${s}" ${done ? 'disabled' : ''}>
-        <span class="slot-line"></span>${shp(s, on ? 'fill big' : 'big')}<span class="bx-name">${SHAPE_KO[s]}</span>
+        <span class="slot-line"></span>${shp(s, on ? 'fill big' : 'big')}<span class="bx-name">${SHAPE_KO[s]}${who.length ? ` <b>×${who.length}</b>` : ''}</span>
+        <span class="bx-who live">${who.map((p) => `<span class="${p.id === api.meId() ? 'me' : ''}">${p.id === api.meId() ? '나' : esc(p.name)}</span>`).join('')}</span>
         ${on && done ? '<span class="ticket">🎫</span>' : ''}</button>`;
     }
     h += '</div>';
@@ -268,11 +294,13 @@
 
   function renderBar(game) {
     const me = game.me;
+    const r = myRow(game);
+    const mini = r ? boardHtml(r.cells, r.lines, 'micro') : boardHtml([], [], 'micro', { memo: memoGet() });
     $('abBar').innerHTML = `
+      <button class="bar-board" data-mine aria-label="내 빙고판">${mini}<span>내 빙고판</span></button>
       <div class="bar-coins">💰<b>${me.coinValue}</b><small>원</small></div>
       <div class="bar-tix">🎫 <b>${Math.max(0, me.tickets)}</b></div>
-      <button class="btn bar-btn" data-mine>📒 내 기록</button>
-      <button class="btn bar-btn" data-log>📜 전체</button>`;
+      <button class="btn bar-btn" data-log>📜 기록</button>`;
   }
 
   /* ------------------------------------------------------------ */
@@ -312,6 +340,16 @@
     api.render();
   });
 
+  $('mineBody').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-cell]');
+    if (!c) return;
+    memoToggle(Number(c.dataset.cell));
+    api.SFX.select();
+    renderMine();
+    const game = g();
+    if (game) renderBar(game);
+  });
+
   $('abBar').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -335,8 +373,14 @@
     if (!game) return;
     const ended = game.phase === 'ended';
     const r = myRow(game);
-    let h = `<div class="mine-board">${boardHtml(r ? r.cells : [], r ? r.lines : [], 'mid')}
-      <div class="mine-note">${ended ? `${r.lineCount}빙고 · ${r.filled}칸` : '모든 플레이어의 빙고판은 같아요.<br/>내가 무엇을 낙찰받았는지는 <b>끝날 때</b> 공개!'}</div></div>`;
+    let h;
+    if (ended && r) {
+      h = `<div class="mine-top">${boardHtml(r.cells, r.lines, 'big')}
+        <div class="mine-note"><b>${r.lineCount}빙고 · ${r.filled}칸</b> · 실제 결과예요</div></div>`;
+    } else {
+      h = `<div class="mine-top">${boardHtml([], [], 'big', { memo: memoGet(), tap: true })}
+        <div class="mine-note">칸을 눌러 <b>낙찰받았다고 생각하는 도형</b>을 표시해 두세요.<br/>나만 보는 메모 · 실제 결과는 <b>끝날 때</b> 공개!</div></div>`;
+    }
     h += '<div class="mine-rows">';
     if (!game.history.length) h += '<div class="empty-note">아직 기록이 없어요</div>';
     game.history.forEach((hh) => {

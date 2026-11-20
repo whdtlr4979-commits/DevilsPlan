@@ -41,7 +41,9 @@
 
   function decideChoice(state, pid, rng = Math.random) {
     const est = estimateHoldings(state, pid);
-    const weights = SHAPES.map((s) => Math.max(0, 3 - est[s]) + 0.35);
+    // 이미 공개된 선택을 보고, 사람이 몰린 상자는 조금 피한다
+    const crowd = (s) => state.order.filter((id) => state.choices[id] === s).length;
+    const weights = SHAPES.map((s) => (Math.max(0, 3 - est[s]) + 0.35) / (1 + 0.25 * crowd(s)));
     return { type: 'choose', shape: SHAPES[pickWeighted(weights, rng)] };
   }
 

@@ -35,10 +35,11 @@ test('준비: 코인 10개 30원, 티켓 7장, 7라운드', () => {
   assert.strictEqual(v.phase, 'choose');
 });
 
-test('도형 선택은 단계가 끝나야 공개된다', () => {
+test('도형 선택은 티켓을 넣는 즉시 모두에게 공개된다', () => {
   const g = E.createGame(players(3), {}, T0);
-  E.applyAction(g, 'p0', { type: 'choose', shape: 'star' }, T0);
   assert.strictEqual(E.viewFor(g, 'p1', T0).players[0].choice, null);
+  E.applyAction(g, 'p0', { type: 'choose', shape: 'star' }, T0);
+  assert.strictEqual(E.viewFor(g, 'p1', T0).players[0].choice, 'star');
   assert.strictEqual(E.viewFor(g, 'p0', T0).players[0].choice, 'star');
   assert.ok(E.viewFor(g, 'p1', T0).players[0].submitted);
   chooseAll(g, { p1: 'star', p2: 'circle' });
@@ -191,7 +192,10 @@ test('방: 연습 모드는 봇과 함께 끝까지 진행된다', async () => {
         if (g.phase === 'choose' && !g.choices[room.hostId]) room.request('h', 'action', { type: 'choose', shape: 'star' });
         if (g.phase === 'bid' && !g.bids[room.hostId]) room.request('h', 'action', { type: 'bid', coins: coins({ 1: g.players[room.hostId].coins[1] ? 1 : 0 }) });
         if (g.phase === 'result') { g.deadline = Date.now(); room.schedule(); }
-        else g.botDelays = Object.fromEntries(g.order.map((id) => [id, 0]));
+        else if (Object.values(g.botDelays).some((d) => d > 0)) {
+          g.botDelays = Object.fromEntries(g.order.map((id) => [id, 0]));
+          room.schedule(); // 봇이 바로 제출하도록 다시 예약
+        }
       } catch (e) { clearInterval(iv); reject(e); }
     }, 3);
   });

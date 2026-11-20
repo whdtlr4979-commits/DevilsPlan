@@ -4,7 +4,7 @@
  * 진행: 7라운드 × [도형 선택 → 입찰 → 결과 발표] → 빙고판 자동 배치 → 순위
  *
  * 정보 공개 규칙
- *  - 도형 선택: 선택 단계가 끝나면 누가 어느 상자를 골랐는지 전체 공개
+ *  - 도형 선택: 누가 어느 상자에 티켓을 넣었는지 넣는 즉시 전체 공개
  *  - 입찰: 금액은 본인만 안다. 사용한 코인은 결과와 상관없이 회수
  *  - 결과 발표: 도형별 낙찰가만 공개. 낙찰가가 가장 높은 도형은 시크릿(낙찰가 비공개)
  *    누가 낙찰받았는지는 낙찰자 본인에게도 비공개
@@ -267,7 +267,6 @@
   function viewFor(state, viewerId, now = Date.now()) {
     const ended = state.phase === 'ended';
     const me = state.players[viewerId] || null;
-    const choicesPublic = state.phase !== 'choose';
     return {
       phase: state.phase,
       round: state.round,
@@ -278,7 +277,7 @@
         id,
         name: state.players[id].name,
         submitted: submitted(state, id),
-        choice: choicesPublic || id === viewerId ? state.choices[id] || null : null,
+        choice: state.choices[id] || null, // 넣는 즉시 공개
       })),
       me: me
         ? {
