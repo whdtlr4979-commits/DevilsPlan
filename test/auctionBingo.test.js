@@ -129,6 +129,27 @@ test('결과: 낙찰가만 공개, 최고 낙찰가 도형은 시크릿, 낙찰�
   assert.ok(!JSON.stringify(E.viewFor(g, 'p1', T0)).includes('"myBid":5'));
 });
 
+test('최고 낙찰가가 동률이면 시크릿 없이 모두 공개, 단독 최고가는 그 도형만 시크릿', () => {
+  const g = E.createGame(players(3), {}, T0);
+  chooseAll(g, { p0: 'circle', p1: 'triangle', p2: 'star' });
+  bidAll(g, { p0: { 5: 1 }, p1: { 2: 1 }, p2: { 5: 1 } }); // ○ 5원, ☆ 5원 동률
+  let h = E.viewFor(g, 'p1', T0).history[0];
+  assert.deepStrictEqual(g.history[0].secret, []);
+  assert.strictEqual(h.shapes.circle.price, 5);
+  assert.strictEqual(h.shapes.star.price, 5);
+  assert.strictEqual(h.shapes.triangle.price, 2);
+  E.tick(g, g.deadline);
+  chooseAll(g, { p0: 'circle', p1: 'triangle', p2: 'star' });
+  bidAll(g, { p0: { 3: 1 }, p1: { 3: 1 }, p2: { 1: 1 } }); // ○ 3원, △ 3원 동률 최고가 → 시크릿 없음
+  assert.deepStrictEqual(g.history[1].secret, []);
+  E.tick(g, g.deadline);
+  chooseAll(g, { p0: 'circle', p1: 'triangle', p2: 'star' });
+  bidAll(g, { p0: { 3: 1 }, p1: { 1: 1 }, p2: { 2: 1 } }); // ○ 3원 단독 최고가
+  h = E.viewFor(g, 'p1', T0).history[2];
+  assert.deepStrictEqual(g.history[2].secret, ['circle']);
+  assert.strictEqual(h.shapes.circle.price, null);
+});
+
 test('가진 코인보다 많이 낼 수 없고, 코인은 쪼갤 수 없다', () => {
   const g = E.createGame(players(3), {}, T0);
   chooseAll(g, { p0: 'circle', p1: 'circle', p2: 'circle' });
