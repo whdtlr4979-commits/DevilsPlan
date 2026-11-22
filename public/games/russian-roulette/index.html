@@ -107,6 +107,19 @@
     </div>
   </div>
 
+  <!-- 단말기 팝업: 약실 선택 / 조사 결과 / 조작 안내 -->
+  <div class="device-backdrop hidden" id="device">
+    <div class="device" role="dialog" aria-modal="true">
+      <div class="dev-tab" id="devTab"></div>
+      <div class="dev-screen">
+        <div class="dev-title" id="devTitle"></div>
+        <div class="dev-rule"></div>
+        <div class="dev-body" id="devBody"></div>
+        <div class="dev-actions" id="devActions"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 기록 / 채팅 시트 -->
   <div class="sheet-backdrop hidden" id="sheetLog">
     <div class="sheet">
@@ -143,7 +156,8 @@
           <li>시작 크레딧 <b>16</b> · 내 크레딧은 나만 봐요</li>
           <li><b>조작</b>: 모두가 함께 채우는 <b>공용 풀</b>(합계 비공개)에 1~3씩. 내 제출로 6이 차면 내가 붙은 약실 2개의 탄약을 교환 (초과분 소멸, 풀 초기화)</li>
           <li><b>🔒 비공개 조사 · 조작 · 패스</b>는 남들에게 전부 <b>"비공개 행동"</b>으로만 보여요</li>
-          <li>약실은 <b>격발될 사람 쪽</b>에 그려져 있어요. 총구 쪽이 1번</li>
+          <li>약실은 <b>A~F</b>. 각 약실은 <b>격발될 사람 쪽</b>에 그려져 있고, 총구 쪽이 <b>A</b> (첫 번째 격발)</li>
+          <li>조사 결과: <b style="color:var(--red-2)">O</b> 총알 있음 · <b style="color:var(--green)">X</b> 빈 약실</li>
           <li>매 라운드 선 플레이어가 시계 방향으로 바뀌어요</li>
         </ul>
         <div class="legend rule-legend">
