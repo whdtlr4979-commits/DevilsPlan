@@ -5,7 +5,9 @@
  *
  * 정보 공개 규칙
  *  - 도형 선택: 누가 어느 상자에 티켓을 넣었는지 넣는 즉시 전체 공개
- *  - 입찰: 금액은 본인만 안다. 사용한 코인은 결과와 상관없이 회수
+ *  - 입찰: 금액은 본인만 안다. 최소 1원. 1원 이상 입찰하지 못하면 즉시 탈락(이후 라운드 제외, 최하위)
+ *    사용한 코인은 결과와 상관없이 소멸
+ *  - 낙찰자는 그 도형에 '입찰한' 인원 수만큼 획득 (동률이면 나눠 갖고 소수점 버림)
  *  - 결과 발표: 도형별 낙찰가만 공개. 낙찰가가 가장 높은 도형은 시크릿(낙찰가 비공개)
  *    누가 낙찰받았는지는 낙찰자 본인에게도 비공개
  *  - 게임이 끝나면 모든 정보 공개
@@ -35,6 +37,7 @@
     fast: { label: '빠름', choose: 30, bid: 45, result: 6 },
     normal: { label: '보통', choose: 60, bid: 90, result: 8 },
     relaxed: { label: '여유', choose: 180, bid: 300, result: 10 },
+    original: { label: '원작', choose: 900, bid: 1200, result: 10 },
   };
 
   /* ---------------- 코인 ---------------- */
@@ -125,13 +128,16 @@
       result: null,
     };
     players.forEach((p) => {
-      state.players[p.id] = { id: p.id, name: p.name, coins: { ...START_COINS }, won: { circle: 0, triangle: 0, star: 0 } };
+      state.players[p.id] = { id: p.id, name: p.name, coins: { ...START_COINS }, won: { circle: 0, triangle: 0, star: 0 }, out: null };
     });
     setPhase(state, 'choose', now, state.timers.chooseMs, rng);
     return state;
   }
 
   const fail = (error) => ({ ok: false, error });
+
+  /** 탈락하지 않은 플레이어 */
+  const active = (state) => state.order.filter((id) => !state.players[id].out);
 
   /**
    * action: { type:'choose', shape } | { type:'bid', coins:{1:n,2:n,3:n,5:n,10:n} }
@@ -140,12 +146,13 @@
     const p = state.players[pid];
     if (!p) return fail('참가자가 아닙니다.');
     if (!action || typeof action !== 'object') return fail('잘못된 행동입니다.');
+    if (p.out) return fail('탈락했습니다.');
     if (action.type === 'choose') {
       if (state.phase !== 'choose') return fail('지금은 도형 선택 시간이 아닙니다.');
       if (state.choices[pid]) return fail('이미 티켓을 넣었습니다.');
       if (!SHAPES.includes(action.shape)) return fail('도형을 고르세요.');
       state.choices[pid] = action.shape;
-      if (state.order.every((id) => state.choices[id])) endChoose(state, now, rng);
+      if (active(state).every((id) => state.choices[id])) endChoose(state, now, rng);
       return { ok: true };
     }
     if (action.type === 'bid') {
@@ -154,52 +161,64 @@
       const coins = normalizeCoins(action.coins);
       if (!coins) return fail('잘못된 입찰입니다.');
       if (!hasCoins(p.coins, coins)) return fail('가진 코인보다 많이 낼 수 없습니다.');
-      COIN_VALUES.forEach((v) => (p.coins[v] -= coins[v])); // 결과와 상관없이 회수
+      if (coinValue(coins) < 1) return fail('최소 1원 이상 입찰해야 합니다.');
+      COIN_VALUES.forEach((v) => (p.coins[v] -= coins[v])); // 결과와 상관없이 소멸
       state.bids[pid] = coins;
-      if (state.order.every((id) => state.bids[id])) resolve(state, now, rng);
+      if (active(state).every((id) => state.bids[id])) resolve(state, now, rng);
       return { ok: true };
     }
     return fail('알 수 없는 행동입니다.');
   }
 
+  function eliminate(state, id, why) {
+    state.players[id].out = { round: state.round, why };
+  }
+
   function endChoose(state, now, rng = Math.random) {
     state.autoChoose = [];
-    state.order.forEach((id) => {
+    active(state).forEach((id) => {
       if (!state.choices[id]) {
         state.choices[id] = SHAPES[Math.floor(rng() * SHAPES.length)]; // 시간 초과 → 무작위 상자
         state.autoChoose.push(id);
       }
     });
+    // 코인이 하나도 없으면 1원 이상 입찰할 수 없으므로 바로 탈락
+    state.outAtBid = [];
+    active(state).forEach((id) => {
+      if (coinValue(state.players[id].coins) < 1) {
+        eliminate(state, id, 'nocoin');
+        state.outAtBid.push(id);
+      }
+    });
     setPhase(state, 'bid', now, state.timers.bidMs, rng);
+    if (!active(state).length) resolve(state, now, rng);
   }
 
   function resolve(state, now, rng) {
-    const autoBid = [];
-    state.order.forEach((id) => {
+    // 시간 안에 1원 이상 입찰하지 못한 플레이어는 즉시 탈락
+    const outNow = [...(state.outAtBid || [])];
+    active(state).forEach((id) => {
       if (!state.bids[id]) {
-        state.bids[id] = emptyCoins(); // 시간 초과 → 입찰 없음 (최하위)
-        autoBid.push(id);
+        eliminate(state, id, 'nobid');
+        outNow.push(id);
       }
     });
     const amounts = {};
-    state.order.forEach((id) => (amounts[id] = coinValue(state.bids[id])));
+    state.order.forEach((id) => (amounts[id] = state.bids[id] ? coinValue(state.bids[id]) : 0));
     const byShape = {};
     for (const s of SHAPES) {
-      const choosers = state.order.filter((id) => state.choices[id] === s);
-      const n = choosers.length;
+      const chosen = state.order.filter((id) => state.choices[id] === s).length;
+      const bidders = state.order.filter((id) => state.choices[id] === s && state.bids[id]);
+      const n = bidders.length; // 그 도형에 '입찰한' 인원
       if (!n) {
-        byShape[s] = { count: 0, status: 'none', price: null, winners: [], each: 0 };
+        byShape[s] = { count: 0, chosen, status: chosen ? 'unsold' : 'none', price: null, winners: [], each: 0 };
         continue;
       }
-      const max = Math.max(...choosers.map((id) => amounts[id]));
-      if (max < 1) {
-        byShape[s] = { count: n, status: 'unsold', price: null, winners: [], each: 0 }; // 아무도 1원 이상 내지 않음
-        continue;
-      }
-      const winners = choosers.filter((id) => amounts[id] === max);
-      const each = Math.floor(n / winners.length); // 동률이면 똑같이 나누고 나머지는 버림
+      const max = Math.max(...bidders.map((id) => amounts[id]));
+      const winners = bidders.filter((id) => amounts[id] === max);
+      const each = Math.floor(n / winners.length); // 동률이면 똑같이 나누고 소수점은 버림
       winners.forEach((id) => (state.players[id].won[s] += each));
-      byShape[s] = { count: n, status: 'sold', price: max, winners, each };
+      byShape[s] = { count: n, chosen, status: 'sold', price: max, winners, each };
     }
     const sold = SHAPES.filter((s) => byShape[s].status === 'sold');
     const top = sold.length ? Math.max(...sold.map((s) => byShape[s].price)) : null;
@@ -211,13 +230,14 @@
       byShape,
       secret,
       autoChoose: state.autoChoose || [],
-      autoBid,
+      eliminated: outNow,
     });
+    state.outAtBid = [];
     setPhase(state, 'result', now, state.timers.resultMs, rng);
   }
 
   function nextRound(state, now, rng) {
-    if (state.round >= ROUNDS) return finish(state, now);
+    if (state.round >= ROUNDS || !active(state).length) return finish(state, now);
     state.round += 1;
     state.choices = {};
     state.bids = {};
@@ -242,9 +262,12 @@
         coins: { ...p.coins },
         coinValue: coinValue(p.coins),
         coinCount: coinCount(p.coins),
+        out: p.out,
       };
     });
-    const cmp = (a, b) => b.lineCount - a.lineCount || b.filled - a.filled || b.coinValue - a.coinValue;
+    // 탈락자는 생존자 전원보다 아래 (먼저 탈락할수록 아래). 그 다음 빙고 → 칸 → 남은 코인
+    const outRank = (r) => (r.out ? r.out.round : ROUNDS + 1);
+    const cmp = (a, b) => outRank(b) - outRank(a) || b.lineCount - a.lineCount || b.filled - a.filled || b.coinValue - a.coinValue;
     rows.sort(cmp);
     rows.forEach((r, i) => (r.rank = i > 0 && cmp(rows[i - 1], r) === 0 ? rows[i - 1].rank : i + 1));
     state.result = { standings: rows };
@@ -260,7 +283,7 @@
   }
 
   const submitted = (state, id) =>
-    state.phase === 'choose' ? !!state.choices[id] : state.phase === 'bid' ? !!state.bids[id] : false;
+    state.players[id].out ? false : state.phase === 'choose' ? !!state.choices[id] : state.phase === 'bid' ? !!state.bids[id] : false;
 
   /* ---------------- 플레이어별 시점 ---------------- */
 
@@ -278,6 +301,7 @@
         name: state.players[id].name,
         submitted: submitted(state, id),
         choice: state.choices[id] || null, // 넣는 즉시 공개
+        out: state.players[id].out, // 탈락은 공개
       })),
       me: me
         ? {
@@ -288,6 +312,7 @@
             choice: state.choices[me.id] || null,
             bid: state.bids[me.id] ? coinValue(state.bids[me.id]) : null,
             won: ended ? { ...me.won } : null, // 끝나기 전에는 본인도 모른다
+            out: me.out,
           }
         : null,
       history: state.history.map((h) => {
@@ -297,6 +322,7 @@
           const isSecret = h.secret.includes(s);
           shapes[s] = {
             count: b.count,
+            chosen: b.chosen,
             status: b.status,
             secret: isSecret,
             price: ended || !isSecret ? b.price : null,
@@ -310,6 +336,7 @@
           shapes,
           myShape: h.choices[viewerId] || null,
           myBid: h.amounts[viewerId] ?? null,
+          eliminated: h.eliminated || [], // 이번 라운드에 탈락한 사람 (공개)
           amounts: ended ? h.amounts : undefined,
         };
       }),
@@ -333,6 +360,7 @@
     coinCount,
     normalizeCoins,
     hasCoins,
+    active,
     bestPlacement,
     createGame,
     applyAction,
