@@ -38,9 +38,11 @@
     { key: 'privateCheck', lb: '비공개<br>조사', name: '비공개 조사', cost: '2', icon: ICON.eyeOff, desc: '붙어 있는 2칸 · 나만 확인', priv: true },
     { key: 'rotate1', lb: '1칸<br>회전', name: '1칸 회전', cost: '3', icon: ICON.rot1, desc: '총구를 시계 방향 1칸' },
     { key: 'rotate2', lb: '2칸<br>회전', name: '2칸 회전', cost: '4', icon: ICON.rot2, desc: '총구를 시계 방향 2칸' },
-    { key: 'manip', lb: '몰래<br>조작', name: '조작', cost: '1-3', icon: ICON.swap, desc: '1~3씩 몰래 모아 6 → 붙은 2칸 탄약 교환', priv: true },
+    { key: 'manip', lb: '몰래<br>조작', name: '조작', cost: '1-3', icon: ICON.swap, desc: '공용 풀에 1~3씩 몰래 · 내 제출로 6이 차면 붙은 2칸 탄약 교환', priv: true },
   ];
-  const actByKey = Object.fromEntries(ACTS.map((a) => [a.key, a]));
+  // 공용 풀을 채운 사람만 하는 두 번째 단계 (타일에는 없음)
+  const SWAP_ACT = { key: 'manipSwap', name: '조작권 획득!', cost: '', icon: ICON.swap, priv: true };
+  const actByKey = Object.fromEntries([...ACTS, SWAP_ACT].map((a) => [a.key, a]));
 
   /* ------------------------------------------------------------ */
   /* sound & haptics                                               */
@@ -313,6 +315,13 @@
     }
     if (phase === 'lobby') { stopAnim(); closeResult(); }
     if (game && game.currentPlayerId !== room.meId) clearSel();
+    // 내 제출로 공용 조작 풀이 찼다 → 바로 약실 선택 모드
+    if (game && game.me && game.me.pendingManip && S.sel.type !== 'manipSwap') {
+      clearSel();
+      S.sel.type = 'manipSwap';
+      SFX.turn();
+      buzz([60, 40, 60]);
+    }
     S.prevPhase = phase;
 
     // 효과음
@@ -492,8 +501,7 @@
 
   function needsPair(game) {
     const t = S.sel.type;
-    if (t === 'publicCheck' || t === 'privateCheck') return true;
-    return t === 'manip' && !!S.sel.amount && game.me.manip + S.sel.amount >= game.rules.manipTarget;
+    return t === 'publicCheck' || t === 'privateCheck' || t === 'manipSwap';
   }
 
   function updateBoard(game) {
@@ -626,10 +634,6 @@
     const r = game.rules;
     const ended = game.phase === 'ended';
     const myTurn = !ended && game.currentPlayerId === meId();
-    const addAmt = S.sel.type === 'manip' && S.sel.amount ? S.sel.amount : 0;
-
-    const pips = Array.from({ length: r.manipTarget }, (_, i) =>
-      `<i class="${i < me.manip ? 'on' : i < me.manip + addAmt ? 'add' : ''}"></i>`).join('');
     let mych;
     if (!ended) mych = `<div class="mych"><span>내 약실</span><b class="${knowCls(game.knowledge[me.chamber])}">${me.chamber + 1}</b></div>`;
     else {
@@ -638,8 +642,6 @@
     }
     const stats = `<div class="stats">
       <div class="coins">${COIN}<b>${me.credits}</b><small>/${r.startCredits}</small></div>
-      <div class="stat-sep"></div>
-      <div class="manip"><span>조작</span><div class="pips">${pips}</div></div>
       ${mych}</div>`;
 
     let body = '';
@@ -647,15 +649,16 @@
       body = S.anim.done
         ? '<button class="btn btn-primary btn-lg btn-block" data-result>결과 보기</button>'
         : '<div class="idle-note">격발 중…</div>';
-    } else if (myTurn && me.credits === 0) {
+    } else if (myTurn && me.credits === 0 && !me.pendingManip) {
       body = `<div class="passbox"><div class="big">크레딧 없음</div>
         <div class="small">곧 자동으로 패스돼요 · 남들에겐 "비공개 행동"</div>
         <button class="btn btn-block" data-pass>지금 패스</button></div>`;
     } else if (myTurn && S.sel.type) {
       // 선택 모드: 보드가 잘 보이도록 도크를 컴팩트하게
       const a = actByKey[S.sel.type];
+      const locked = S.sel.type === 'manipSwap'; // 조작권은 취소할 수 없다
       dock.innerHTML = `<div class="step-head">
-          <button class="icon-btn" data-back aria-label="뒤로">‹</button>
+          ${locked ? '<span class="sh-flash">⚡</span>' : '<button class="icon-btn" data-back aria-label="뒤로">‹</button>'}
           <div class="sh-title ${a.priv ? 'priv' : ''}">${a.icon}<span>${a.name}</span></div>
           <div class="sh-coins">${COIN}<b>${me.credits}</b></div>
         </div>${renderStep(game)}`;
@@ -700,17 +703,17 @@
       const r = game.rules;
       const seg = [];
       for (let v = r.manipMin; v <= r.manipMax; v++) seg.push(`<button class="${sel.amount === v ? 'on' : ''}" data-amt="${v}" ${v > me.credits ? 'disabled' : ''}>${v}</button>`);
-      const reaches = sel.amount && me.manip + sel.amount >= r.manipTarget;
-      h += `<div class="step-hint">몰래 낼 크레딧 · 지금 <b class="gold">${me.manip}/${r.manipTarget}</b></div><div class="seg">${seg.join('')}</div>`;
-      if (reaches) {
-        const waste = me.manip + sel.amount - r.manipTarget;
-        h += `<div class="step-hint"><b class="gold">⚡ 조작권!</b> 탄약을 바꿀 약실 2개${waste ? ` <span class="dim">(초과 ${waste} 소멸)</span>` : ''}</div>${pairChips(sel.pair)}`;
-        ready = sel.pair != null;
-        label = `조작 실행${sel.pair != null ? ` · ${pairLabel(sel.pair)} 교환` : ''}`;
-      } else {
-        ready = !!sel.amount;
-        label = '몰래 제출';
-      }
+      h += `<div class="step-hint"><b>공용 풀</b>에 몰래 넣을 크레딧 · 내 제출로 <b class="gold">6</b>이 차면 내가 조작</div><div class="seg">${seg.join('')}</div>`;
+      ready = !!sel.amount;
+      label = '몰래 제출';
+    } else if (sel.type === 'manipSwap') {
+      const w = me.pendingManip ? me.pendingManip.wasted : 0;
+      const hint = sel.pair != null ? `약실 <b>${pairLabel(sel.pair)}</b>의 탄약을 서로 바꿔요`
+        : S.pendingCh != null ? '깜빡이는 <b>옆 칸</b>을 누르세요'
+        : '풀이 찼어요! 탄약을 바꿀 <b>붙어 있는 약실 2개</b>';
+      h += `<div class="step-hint">${hint}${w ? ` <span class="dim">(초과 ${w} 소멸)</span>` : ''}</div>${pairChips(sel.pair)}`;
+      ready = sel.pair != null;
+      label = `조작 실행${sel.pair != null ? ` · ${pairLabel(sel.pair)} 교환` : ''}`;
     }
     const cost = sel.type === 'manip' ? sel.amount || '' : a.cost;
     h += `<button class="btn btn-primary btn-lg btn-block" data-confirm ${ready ? '' : 'disabled'}>${label}${cost ? ` <span style="opacity:.75">· ${cost}C</span>` : ''}</button>`;
@@ -757,10 +760,8 @@
     if (sel.type === 'publicCheck' || sel.type === 'privateCheck') action = { type: sel.type, pair: sel.pair };
     else if (sel.type === 'rotate1') action = { type: 'rotate', steps: 1 };
     else if (sel.type === 'rotate2') action = { type: 'rotate', steps: 2 };
-    else if (sel.type === 'manip') {
-      action = { type: 'manip', amount: sel.amount };
-      if (sel.pair != null) action.pair = sel.pair;
-    }
+    else if (sel.type === 'manip') action = { type: 'manip', amount: sel.amount };
+    else if (sel.type === 'manipSwap') action = { type: 'manipSwap', pair: sel.pair };
     if (action) send(action);
   }
 
@@ -798,9 +799,9 @@
       case 'rotate':
         return { cls: '', html: `${who} ${ev.steps}칸 회전 → ${nm(game.seats[ev.aim].id)}` };
       case 'manipSubmit':
-        return { cls: ev.mine ? 'mine' : '', html: `🔒 ${who} 조작 +${ev.amount} <span class="dim">(${ev.total}/6)</span>` };
+        return { cls: ev.mine ? 'mine' : '', html: `🔒 ${who} 조작 풀에 +${ev.amount}${ev.reached ? ' <b>→ 6 달성!</b>' : ''}` };
       case 'manip':
-        return { cls: ev.mine ? 'mine' : '', html: `⚡ ${who} 조작 · ${pairLabel(ev.pair)} 교환` };
+        return { cls: ev.mine ? 'mine' : '', html: `⚡ ${who} 조작 · ${pairLabel(ev.pair)} 교환${ev.wasted ? ` <span class="dim">(초과 ${ev.wasted} 소멸)</span>` : ''}` };
       case 'pass':
         return { cls: ev.mine ? 'mine' : '', html: `${ev.mine ? '🔒 ' : ''}${who} 패스` };
       case 'end':

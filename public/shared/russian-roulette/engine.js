@@ -10,6 +10,8 @@
  *
  * 정보 공개 규칙
  *  - 공개 조사 / 회전 : 누가 무엇을 했는지 전체 공개
+ *  - 조작 크레딧은 모두가 함께 채우는 '공용 풀'(합계 비공개)에 1~3개씩 쌓인다.
+ *    내 제출로 풀이 6 이상이 되면 내가 인접 약실 2개를 골라 탄약을 교환하고, 초과분은 소멸, 풀은 0으로 초기화
  *  - 비공개 조사 / 조작 / 패스 : 다른 사람에게는 모두 똑같이 '비공개 행동'으로만 발표
  *    (어느 약실을 봤는지, 얼마를 냈는지, 조작이 일어났는지, 크레딧이 바닥났는지 알 수 없다)
  *  - 게임이 끝나면 모든 기록이 공개된다
@@ -75,6 +77,8 @@ function createGame(players, rng = Math.random) {
     turn: 1,
     events: [],
     result: null,
+    manipPool: 0, // 공용 조작 풀 (비공개)
+    pendingManip: null, // { by, wasted } — 풀을 채운 플레이어가 약실을 고르는 중
   };
   order.forEach((p, seat) => {
     state.players[p.id] = {
@@ -82,7 +86,6 @@ function createGame(players, rng = Math.random) {
       name: p.name,
       seat,
       credits: START_CREDITS,
-      manip: 0,
     };
   });
   pushEvent(state, { type: 'start', aim: state.aim });
@@ -121,6 +124,7 @@ function isValidPair(pair) {
 function availableActions(state, playerId) {
   const p = state.players[playerId];
   if (!p || state.phase !== 'playing' || currentPlayerId(state) !== playerId) return [];
+  if (state.pendingManip) return state.pendingManip.by === playerId ? ['manipSwap'] : [];
   const c = p.credits;
   if (c === 0) return ['pass'];
   const list = [];
@@ -138,7 +142,8 @@ function availableActions(state, playerId) {
  *  { type:'publicCheck', pair }
  *  { type:'privateCheck', pair }
  *  { type:'rotate', steps: 1|2 }
- *  { type:'manip', amount: 1~3, pair? }  // 누적 6 이상 도달 시 pair 필수
+ *  { type:'manip', amount: 1~3 }        // 공용 풀에 제출. 풀이 6 이상이 되면 같은 차례에 manipSwap 을 해야 한다
+ *  { type:'manipSwap', pair }            // 조작권을 얻은 플레이어가 교환할 인접 약실 선택
  *  { type:'pass' }                       // 크레딧이 0일 때만 (자동)
  * @returns {{ok:true} | {ok:false, error:string}}
  */
@@ -147,6 +152,7 @@ function applyAction(state, playerId, action) {
   if (currentPlayerId(state) !== playerId) return fail('당신의 차례가 아닙니다.');
   const p = state.players[playerId];
   if (!action || typeof action !== 'object') return fail('잘못된 행동입니다.');
+  if (state.pendingManip && action.type !== 'manipSwap') return fail('조작할 약실 2개를 먼저 고르세요.');
 
   switch (action.type) {
     case 'publicCheck':
@@ -176,19 +182,24 @@ function applyAction(state, playerId, action) {
         return fail(`조작 크레딧은 ${MANIP_MIN}~${MANIP_MAX}개만 제출할 수 있습니다.`);
       }
       if (p.credits < amount) return fail('크레딧이 부족합니다.');
-      const reaches = p.manip + amount >= MANIP_TARGET;
-      if (reaches && !isValidPair(action.pair)) {
-        return fail('조작권 획득! 탄약을 바꿀 인접 약실 2개를 선택하세요.');
-      }
       p.credits -= amount;
-      p.manip += amount;
-      pushEvent(state, { type: 'manipSubmit', by: playerId, amount, total: Math.min(p.manip, MANIP_TARGET) });
-      if (reaches) {
-        const wasted = p.manip - MANIP_TARGET; // 초과분 소멸
-        p.manip = 0;
-        swapPair(state.chambers, action.pair);
-        pushEvent(state, { type: 'manip', by: playerId, pair: action.pair, wasted });
+      state.manipPool += amount;
+      const reached = state.manipPool >= MANIP_TARGET;
+      pushEvent(state, { type: 'manipSubmit', by: playerId, amount, reached });
+      if (reached) {
+        // 조작권 획득: 초과분 소멸, 풀 초기화. 같은 차례에 약실을 고른다 (차례는 아직 넘어가지 않음)
+        state.pendingManip = { by: playerId, wasted: state.manipPool - MANIP_TARGET };
+        state.manipPool = 0;
+        return { ok: true, manip: true };
       }
+      break;
+    }
+    case 'manipSwap': {
+      if (!state.pendingManip || state.pendingManip.by !== playerId) return fail('조작권이 없습니다.');
+      if (!isValidPair(action.pair)) return fail('인접한 약실 2개를 선택하세요.');
+      swapPair(state.chambers, action.pair);
+      pushEvent(state, { type: 'manip', by: playerId, pair: action.pair, wasted: state.pendingManip.wasted });
+      state.pendingManip = null;
       break;
     }
     case 'pass': {
@@ -309,7 +320,13 @@ function viewFor(state, viewerId) {
       };
     }),
     me: me
-      ? { id: me.id, seat: me.seat, credits: me.credits, manip: me.manip, chamber: chamberForSeat(me.seat, state.aim) }
+      ? {
+          id: me.id,
+          seat: me.seat,
+          credits: me.credits,
+          chamber: chamberForSeat(me.seat, state.aim),
+          pendingManip: state.pendingManip && state.pendingManip.by === viewerId ? { wasted: state.pendingManip.wasted } : null,
+        }
       : null,
     aim: state.aim,
     round: state.round,

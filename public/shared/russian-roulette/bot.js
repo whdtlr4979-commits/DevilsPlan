@@ -12,7 +12,7 @@
 })(typeof self !== 'undefined' ? self : this, function (E) {
   'use strict';
 
-const { CHAMBERS, COST, MANIP_TARGET, MANIP_MAX, mod, pairChambers } = E;
+const { CHAMBERS, COST, MANIP_MAX, mod, pairChambers } = E;
 
 const CONFIGS = [];
 for (let i = 0; i < CHAMBERS; i++) for (let j = i + 1; j < CHAMBERS; j++) CONFIGS.push([i, j]);
@@ -127,14 +127,14 @@ function bestSwapFor(myCh, prob, rng) {
 function decide(state, botId, rng = Math.random) {
   const me = state.players[botId];
   const C = me.credits;
-  if (C === 0) return { type: 'pass' };
   const prob = belief(state, botId);
   const chAt = (r) => mod(me.seat - state.aim - r, CHAMBERS);
   const myCh = chAt(0);
   const p0 = prob[myCh];
 
-  const manipNeed = MANIP_TARGET - me.manip; // 조작권까지 남은 크레딧
-  const canTriggerManip = manipNeed <= Math.min(MANIP_MAX, C);
+  // 공용 풀을 채워 조작권을 얻었다 → 내 약실이 가장 안전해지는 교환
+  if (state.pendingManip && state.pendingManip.by === botId) return { type: 'manipSwap', pair: bestSwapFor(myCh, prob, rng).pair };
+  if (C === 0) return { type: 'pass' };
   const rotations = [1, 2]
     .filter((r) => C >= (r === 1 ? COST.rotate1 : COST.rotate2))
     .map((r) => ({ r, p: prob[chAt(r)] }))
@@ -142,19 +142,11 @@ function decide(state, botId, rng = Math.random) {
 
   const publicCheck = (pair) => ({ type: 'publicCheck', pair });
   const privateCheck = (pair) => ({ type: 'privateCheck', pair });
-  const manipSubmit = (amount) => {
-    const amt = Math.max(1, Math.min(MANIP_MAX, C, amount));
-    const action = { type: 'manip', amount: amt };
-    if (me.manip + amt >= MANIP_TARGET) action.pair = bestSwapFor(myCh, prob, rng).pair;
-    return action;
-  };
+  // 공용 풀 합계는 모른다. 내 제출로 6이 차면 다음 결정에서 manipSwap 을 고른다
+  const manipSubmit = (amount) => ({ type: 'manip', amount: Math.max(1, Math.min(MANIP_MAX, C, amount)) });
 
   // 1) 위험: 내 약실에 총알이 있을 가능성이 높음
   if (p0 >= 0.5) {
-    if (canTriggerManip) {
-      const s = bestSwapFor(myCh, prob, rng);
-      if (s.p <= p0 - 0.3) return manipSubmit(manipNeed);
-    }
     if (rotations.length && rotations[0].p <= p0 - 0.3) return { type: 'rotate', steps: rotations[0].r };
     if (p0 < 0.95 && C >= COST.publicCheck) {
       // 정말 위험한지 확인 (크레딧이 넉넉하면 비공개)
@@ -162,7 +154,8 @@ function decide(state, botId, rng = Math.random) {
       return C >= 8 && rng() < 0.5 ? privateCheck(pair) : publicCheck(pair);
     }
     // 확실히 위험한데 당장 피할 수단이 없다 → 조작을 모으거나 최소 지출로 시간 끌기
-    if (me.manip > 0 || C >= manipNeed) return manipSubmit(Math.min(MANIP_MAX, manipNeed));
+    // 공용 풀을 채워 조작권을 노린다 (풀이 이미 차 있을 수도)
+    if (C >= MANIP_MAX || rng() < 0.6) return manipSubmit(MANIP_MAX);
     return publicCheck(mostUncertainPair(prob));
   }
 

@@ -91,8 +91,10 @@ test('저장 / 복원 후 이어서 진행', async () => {
       const me = restored.players.find((p) => !p.isBot);
       if (restored.game && restored.game.phase === 'playing') {
         const cur = restored.game.seats[(restored.game.firstSeat + restored.game.offset) % 6];
-        if (cur === me.id && restored.game.players[me.id].credits > 0) {
-          restored.request('h2', 'action', { type: 'manip', amount: 1, pair: 0 }); // 0이면 자동 패스
+        if (cur === me.id && restored.game.pendingManip && restored.game.pendingManip.by === me.id) {
+          restored.request('h2', 'action', { type: 'manipSwap', pair: 0 }); // 공용 풀을 채웠으면 조작
+        } else if (cur === me.id && restored.game.players[me.id].credits > 0) {
+          restored.request('h2', 'action', { type: 'manip', amount: 1 }); // 0이면 자동 패스
         }
       }
     }, 2);
