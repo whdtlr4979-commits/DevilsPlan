@@ -43,7 +43,7 @@
     const est = estimateHoldings(state, pid);
     // 이미 공개된 선택을 보고, 사람이 몰린 상자는 조금 피한다
     const crowd = (s) => E.active(state).filter((id) => state.choices[id] === s).length;
-    const weights = SHAPES.map((s) => (Math.max(0, 3 - est[s]) + 0.35) / (1 + 0.25 * crowd(s)));
+    const weights = SHAPES.map((s) => (Math.max(0, E.CAPACITY[s] - est[s]) + 0.35) / (1 + 0.25 * crowd(s)));
     return { type: 'choose', shape: SHAPES[pickWeighted(weights, rng)] };
   }
 
@@ -85,7 +85,7 @@
     const n = E.active(state).filter((id) => state.choices[id] === shape).length;
     const rivals = n - 1;
     const roundsLeft = ROUNDS - state.round + 1;
-    const need = Math.max(0, 3 - estimateHoldings(state, pid)[shape]);
+    const need = Math.max(0, E.CAPACITY[shape] - estimateHoldings(state, pid)[shape]);
     let target;
     if (rivals === 0) target = 1; // 혼자면 1원이면 충분
     else {

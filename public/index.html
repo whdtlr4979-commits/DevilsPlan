@@ -103,7 +103,7 @@
       star: '<path d="M12 2.6l2.75 5.75 6.3.85-4.6 4.35 1.15 6.25L12 16.8l-5.6 3 1.15-6.25-4.6-4.35 6.3-.85z"/>',
     };
     const COL = { circle: '#4da3ff', triangle: '#2ee6a0', star: '#ffc542' };
-    const BOARD = ['circle', 'triangle', 'star', 'triangle', 'star', 'circle', 'star', 'circle', 'triangle'];
+    const BOARD = ['triangle', 'circle', 'triangle', 'circle', 'star', 'circle', 'star', 'circle', 'triangle'];
     const bingoArt = `<svg class="gc-art bingo" viewBox="0 0 200 200" aria-hidden="true"><g class="tilt">${BOARD.map((s, i) => {
       const x = 22 + (i % 3) * 54, y = 22 + Math.floor(i / 3) * 54, on = [2, 4, 6, 0, 8].includes(i);
       return `<rect x="${x}" y="${y}" width="48" height="48" rx="11" fill="${on ? 'rgba(255,255,255,.07)' : '#101016'}" stroke="${on ? COL[s] : '#2e2e3a'}" stroke-width="2.5"/>` +

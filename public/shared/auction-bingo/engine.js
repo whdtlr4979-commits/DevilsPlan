@@ -21,8 +21,14 @@
 
   const SHAPES = ['circle', 'triangle', 'star'];
   const SHAPE_KO = { circle: '동그라미', triangle: '세모', star: '별' };
-  // 모든 플레이어가 같은 빙고판을 쓴다. (가로·세로 줄마다 세 도형이 하나씩)
-  const BOARD = ['circle', 'triangle', 'star', 'triangle', 'star', 'circle', 'star', 'circle', 'triangle'];
+  // 모든 플레이어가 같은 빙고판을 쓴다.
+  //   △ ○ △
+  //   ○ ☆ ○
+  //   ☆ ○ △      → 칸 수: ○ 4, △ 3, ☆ 2
+  const BOARD = ['triangle', 'circle', 'triangle', 'circle', 'star', 'circle', 'star', 'circle', 'triangle'];
+  /** 도형별 빙고판 칸 수 (이보다 많이 얻은 도형은 버려진다) */
+  const CAPACITY = {};
+  SHAPES.forEach((s) => (CAPACITY[s] = BOARD.filter((b) => b === s).length));
   const LINES = [
     [0, 1, 2], [3, 4, 5], [6, 7, 8],
     [0, 3, 6], [1, 4, 7], [2, 5, 8],
@@ -90,7 +96,7 @@
       }
     }
     const discarded = {};
-    SHAPES.forEach((s) => (discarded[s] = Math.max(0, (won[s] || 0) - 3)));
+    SHAPES.forEach((s) => (discarded[s] = Math.max(0, (won[s] || 0) - CAPACITY[s])));
     return { cells: best.cells, lines: best.lines, lineCount: best.lines.length, filled: best.cells.length, discarded };
   }
 
@@ -351,6 +357,7 @@
     SHAPES,
     SHAPE_KO,
     BOARD,
+    CAPACITY,
     LINES,
     ROUNDS,
     COIN_VALUES,
