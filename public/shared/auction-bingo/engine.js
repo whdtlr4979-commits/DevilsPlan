@@ -8,7 +8,8 @@
  *  - 입찰: 금액은 본인만 안다. 최소 1원. 1원 이상 입찰하지 못하면 즉시 탈락(이후 라운드 제외, 최하위)
  *    사용한 코인은 결과와 상관없이 소멸
  *  - 낙찰자는 그 도형에 '입찰한' 인원 수만큼 획득 (동률이면 나눠 갖고 소수점 버림)
- *  - 결과 발표: 도형별 낙찰가만 공개. 낙찰가가 가장 높은 도형은 시크릿(낙찰가 비공개)
+ *  - 결과 발표: 도형별 낙찰가만 공개. 낙찰가가 가장 높은 도형은 시크릿(낙찰가 비공개),
+ *    단 최고가가 두 도형 이상 동률이면 시크릿 없음
  *    누가 낙찰받았는지는 낙찰자 본인에게도 비공개
  *  - 게임이 끝나면 모든 정보 공개
  */
@@ -222,7 +223,9 @@
     }
     const sold = SHAPES.filter((s) => byShape[s].status === 'sold');
     const top = sold.length ? Math.max(...sold.map((s) => byShape[s].price)) : null;
-    const secret = sold.filter((s) => byShape[s].price === top);
+    // 낙찰가가 가장 높은 도형 하나만 시크릿. 최고가가 동률이면 시크릿 없이 모두 공개
+    const tops = sold.filter((s) => byShape[s].price === top);
+    const secret = tops.length === 1 ? tops : [];
     state.history.push({
       round: state.round,
       choices: { ...state.choices },
