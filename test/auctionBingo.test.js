@@ -174,30 +174,43 @@ test('제한 시간: 선택 안 하면 무작위 상자, 입찰 안 하면 탈�
   assert.strictEqual(g.round, 2);
 });
 
+test('빙고판: △○△ / ○☆○ / ☆○△ — 칸 수 ○4 △3 ☆2', () => {
+  assert.deepStrictEqual(E.BOARD, ['triangle', 'circle', 'triangle', 'circle', 'star', 'circle', 'star', 'circle', 'triangle']);
+  assert.deepStrictEqual(E.CAPACITY, { circle: 4, triangle: 3, star: 2 });
+});
+
 test('빙고판 배치: 빙고 줄 수 최대화, 넘치는 도형은 버림', () => {
-  assert.strictEqual(E.bestPlacement({ circle: 3, triangle: 3, star: 3 }).lineCount, 8);
+  assert.strictEqual(E.bestPlacement({ circle: 4, triangle: 3, star: 2 }).lineCount, 8); // 꽉 참
+  const full = E.bestPlacement({ circle: 3, triangle: 3, star: 3 });
+  assert.strictEqual(full.discarded.star, 1); // 별 칸은 2개뿐
+  assert.strictEqual(full.filled, 8);
   const p = E.bestPlacement({ circle: 2, triangle: 5, star: 2 });
   assert.strictEqual(p.filled, 7);
   assert.strictEqual(p.discarded.triangle, 2);
-  assert.strictEqual(p.lineCount, 4);
+  assert.strictEqual(p.lineCount, 5);
+  // △1 + ☆2 → 대각선(△·☆·☆) 1줄이 되도록 △를 오른쪽 위에 배치
+  const d = E.bestPlacement({ circle: 0, triangle: 1, star: 2 });
+  assert.strictEqual(d.lineCount, 1);
+  assert.deepStrictEqual(d.cells, [2, 4, 6]);
   assert.strictEqual(E.bestPlacement({ circle: 0, triangle: 0, star: 0 }).lineCount, 0);
 });
 
 test('순위: 빙고 줄 수 → 채운 칸 → 남은 코인', () => {
   const g = E.createGame(players(3), {}, T0);
   g.round = 7;
-  g.players.p0.won = { circle: 3, triangle: 0, star: 0 }; // 0줄 3칸
-  g.players.p1.won = { circle: 0, triangle: 0, star: 3 }; // 1줄 (대각선)
-  g.players.p2.won = { circle: 3, triangle: 0, star: 0 }; // 0줄 3칸, 코인 더 많음
+  g.players.p0.won = { circle: 0, triangle: 2, star: 0 };
+  g.players.p1.won = { circle: 0, triangle: 1, star: 1 };
+  g.players.p2.won = { circle: 0, triangle: 2, star: 0 };
   g.players.p0.coins = coins({ 1: 2 });
   g.players.p1.coins = coins({ 1: 1 });
   g.players.p2.coins = coins({ 1: 1, 5: 1 });
-  chooseAll(g, { p0: 'circle', p1: 'triangle', p2: 'star' });
+  chooseAll(g, { p0: 'triangle', p1: 'star', p2: 'triangle' });
   bidAll(g, { p0: { 1: 1 }, p1: { 1: 1 }, p2: { 1: 1 } });
   assert.ok(E.tick(g, T0 + 999_999));
   assert.strictEqual(g.phase, 'ended');
   const ranks = Object.fromEntries(g.result.standings.map((r) => [r.id, r.rank]));
-  // 각자 혼자 입찰 → p0 ○4(3칸·0줄), p1 ☆3+△1(대각선 1줄), p2 ○3+☆1(4칸·0줄)
+  // p0·p2 는 △ 상자 1원 동률 → 각 1개 → △3 (3칸·0줄), p1 은 ☆ 단독 → △1+☆2 (대각선 1줄)
+  // p0 과 p2 는 줄·칸이 같고 남은 코인이 p2(5원) > p0(1원)
   assert.deepStrictEqual(ranks, { p1: 1, p2: 2, p0: 3 });
   // 끝나면 모두 공개
   const v = E.viewFor(g, 'p0', T0);

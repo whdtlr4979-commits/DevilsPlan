@@ -500,7 +500,7 @@
   /* 시작                                                          */
   /* ------------------------------------------------------------ */
 
-  $('ruleBoard').innerHTML = `<div class="rb-label">공통 빙고판</div>${boardHtml([], [], 'mid')}`;
+  $('ruleBoard').innerHTML = `<div class="rb-label">공통 빙고판 · ${SHAPES.map((x) => `${SYM[x]} ${E.CAPACITY[x]}칸`).join(' · ')}</div>${boardHtml([], [], 'mid')}`;
   const info = (window.GAMES || []).find((x) => x.id === 'auction-bingo');
   $('rulesFull').innerHTML = info ? info.rules.map((r) => `<li>${r}</li>`).join('') : '';
 
