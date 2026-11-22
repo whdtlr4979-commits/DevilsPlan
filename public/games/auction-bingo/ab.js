@@ -287,7 +287,7 @@
       const mine = h0.myShape === s;
       h += `<div class="rcard box-${s} ${mine ? 'on' : ''} ${info.secret ? 'is-secret' : ''}">
         ${shp(s, 'fill big')}<div class="r-count">${info.count}명 입찰</div>${priceHtml(info)}
-        ${mine ? `<div class="r-mine">내 입찰 ${h0.myBid}원</div>` : ''}</div>`;
+        ${mine ? `<div class="r-mine">${h0.eliminated.includes(api.meId()) ? '💀 입찰 실패' : `내 입찰 ${h0.myBid}원`}</div>` : ''}</div>`;
     }
     h += '</div>';
     if (h0.eliminated.length) h += `<div class="out-line">💀 탈락: ${h0.eliminated.map((id) => `<b>${api.nm(id)}</b>`).join(', ')} <span class="dim">(1원 이상 입찰 실패)</span></div>`;
@@ -315,7 +315,7 @@
     $('abBar').innerHTML = `
       <button class="bar-board" data-mine aria-label="내 빙고판">${mini}<span>내 빙고판</span></button>
       <div class="bar-coins">💰<b>${me.coinValue}</b><small>원</small></div>
-      <div class="bar-tix">🎫 <b>${Math.max(0, me.tickets)}</b></div>
+      <div class="bar-tix">${me.out ? '💀' : `🎫 <b>${Math.max(0, me.tickets)}</b>`}</div>
       <button class="btn bar-btn" data-log>📜 기록</button>`;
   }
 
