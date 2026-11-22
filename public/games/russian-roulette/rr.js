@@ -811,9 +811,25 @@
     }
   }
 
+  /** 최신 라운드가 위. 라운드 제목은 그 라운드 행동들 위, 라운드 안에서는 최신 행동이 위 */
+  function logOrder(events) {
+    const head = [];
+    const groups = [];
+    let tail = null;
+    for (const ev of events) {
+      if (ev.type === 'end') tail = ev;
+      else if (ev.type === 'roundStart') groups.push({ title: ev, items: [] });
+      else if (!groups.length) head.push(ev);
+      else groups[groups.length - 1].items.push(ev);
+    }
+    const out = tail ? [tail] : [];
+    for (const g of groups.reverse()) out.push(g.title, ...g.items.reverse());
+    return out.concat(head.reverse());
+  }
+
   function renderLogInto(el, game, withTitle) {
     if (!el || !game) return;
-    const items = game.events.map((ev) => evItem(ev, game)).filter(Boolean).reverse();
+    const items = logOrder(game.events).map((ev) => evItem(ev, game)).filter(Boolean);
     el.innerHTML = (withTitle ? '<div class="log-title">기록</div>' : '') +
       `<div class="log">${items.map((x) => `<div class="lg-item ${x.cls}">${x.html}</div>`).join('')}</div>`;
   }
