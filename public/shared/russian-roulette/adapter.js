@@ -37,13 +37,14 @@
             if (!still() || (!ctx.isBot(pid) && ctx.isConnected(pid))) return false; // 그 사이 재접속
             let res = engine.applyAction(g, pid, bot.decide(g, pid));
             if (!res.ok) res = engine.applyAction(g, pid, { type: 'publicCheck', pair: 0 }); // 안전장치
-            if (!res.ok) res = engine.applyAction(g, pid, { type: 'manip', amount: 1, pair: 0 });
+            if (!res.ok) res = engine.applyAction(g, pid, { type: 'manipSwap', pair: 0 });
+            if (!res.ok) res = engine.applyAction(g, pid, { type: 'manip', amount: 1 });
             if (!res.ok) res = engine.applyAction(g, pid, { type: 'pass' });
             return res.ok;
           },
         };
       }
-      if (g.players[pid].credits === 0) {
+      if (g.players[pid].credits === 0 && !g.pendingManip) {
         const pd = ctx.opts.passDelay;
         const [lo, hi] = Array.isArray(pd) ? pd : [pd, pd];
         return {

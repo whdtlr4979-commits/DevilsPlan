@@ -65,9 +65,10 @@ test('비공개 조사는 2크레딧, 본인만 결과를 보고 다른 사람�
 
 test('비공개 조사 / 조작 제출 / 조작 실행 / 패스는 다른 사람에게 구별되지 않는다', () => {
   const g = fixedGame([true, false, false, false, false, true]);
-  g.players[g.seats[0]].manip = 5;
+  g.manipPool = 5;
   g.players[g.seats[2]].credits = 0;
-  E.applyAction(g, g.seats[0], { type: 'manip', amount: 1, pair: 2 }); // 조작 실행
+  assert.ok(E.applyAction(g, g.seats[0], { type: 'manip', amount: 1 }).manip); // 풀 6 → 조작권
+  assert.ok(E.applyAction(g, g.seats[0], { type: 'manipSwap', pair: 2 }).ok); // 조작 실행
   E.applyAction(g, g.seats[1], { type: 'privateCheck', pair: 0 });
   assert.deepStrictEqual(E.availableActions(g, g.seats[2]), ['pass']);
   assert.strictEqual(E.applyAction(g, g.seats[3], { type: 'pass' }).ok, false);
@@ -112,38 +113,50 @@ test('다른 플레이어의 크레딧은 보이지 않는다', () => {
   assert.strictEqual(v.seats[1].credits, null);
 });
 
-test('조작: 1~3씩 비공개 제출, 6 이상이면 조작권, 초과분 소멸', () => {
+test('조작: 모두가 함께 채우는 공용 풀에 1~3씩 제출, 내 제출로 6이 차면 내가 조작', () => {
   const g = fixedGame([true, false, false, false, false, true]);
-  const p = g.seats[0];
-  // 6명이 한 번씩 돌도록 나머지는 공개조사
-  const others = () => g.seats.slice(1).forEach((id) => E.applyAction(g, id, { type: 'publicCheck', pair: 2 }));
-  assert.strictEqual(E.applyAction(g, p, { type: 'manip', amount: 4 }).ok, false);
-  assert.ok(E.applyAction(g, p, { type: 'manip', amount: 3 }).ok);
-  others();
-  // 라운드 2 → 선 플레이어는 좌석 1. 좌석 0은 맨 마지막
-  g.seats.slice(1).forEach((id) => E.applyAction(g, id, { type: 'publicCheck', pair: 2 }));
-  // 누적 3 + 3 = 6 → pair 필요
-  assert.strictEqual(E.applyAction(g, p, { type: 'manip', amount: 3 }).ok, false);
-  assert.ok(E.applyAction(g, p, { type: 'manip', amount: 3, pair: 0 }).ok);
+  const [a, b, c] = g.seats;
+  assert.strictEqual(E.applyAction(g, a, { type: 'manip', amount: 4 }).ok, false); // 한 번에 최대 3
+  assert.strictEqual(E.applyAction(g, a, { type: 'manip', amount: 0 }).ok, false);
+  assert.ok(E.applyAction(g, a, { type: 'manip', amount: 3 }).ok); // 풀 3
+  assert.ok(E.applyAction(g, b, { type: 'manip', amount: 2 }).ok); // 풀 5 (다른 사람 크레딧도 쌓인다)
+  assert.strictEqual(g.pendingManip, null);
+  // c 의 제출로 6 이상 → c 가 조작권. 초과분 소멸, 풀 초기화. 차례는 아직 c
+  const res = E.applyAction(g, c, { type: 'manip', amount: 3 });
+  assert.ok(res.ok && res.manip);
+  assert.deepStrictEqual(g.pendingManip, { by: c, wasted: 2 });
+  assert.strictEqual(g.manipPool, 0);
+  assert.strictEqual(E.currentPlayerId(g), c);
+  assert.deepStrictEqual(E.availableActions(g, c), ['manipSwap']);
+  assert.strictEqual(E.applyAction(g, c, { type: 'publicCheck', pair: 0 }).ok, false); // 먼저 약실을 골라야 한다
+  assert.strictEqual(E.viewFor(g, c).me.pendingManip.wasted, 2);
+  assert.strictEqual(E.viewFor(g, a).me.pendingManip, null);
+  assert.ok(E.applyAction(g, c, { type: 'manipSwap', pair: 0 }).ok);
   assert.deepStrictEqual(g.chambers, [false, true, false, false, false, true]);
-  assert.strictEqual(g.players[p].manip, 0);
-  assert.strictEqual(g.players[p].credits, 10);
-  // 다른 사람에게는 조작 자체가 보이지 않는다
-  const v = E.viewFor(g, g.seats[2]);
+  assert.strictEqual(E.currentPlayerId(g), g.seats[3]);
+  assert.strictEqual(g.players[c].credits, 13);
+  // 풀 합계와 조작은 다른 사람에게 보이지 않는다
+  const v = E.viewFor(g, g.seats[4]);
   assert.strictEqual(v.events.filter((e) => e.type === 'manipSubmit' || e.type === 'manip').length, 0);
-  // 본인 지식은 스왑 반영
-  const mine = E.viewFor(g, p);
+  assert.ok(!('manipPool' in v));
+  // 본인 기록에는 교환 위치가 남고 지식도 스왑 반영
+  const mine = E.viewFor(g, c);
   assert.strictEqual(mine.events.find((e) => e.type === 'manip').pair, 0);
+  assert.strictEqual(mine.events.find((e) => e.type === 'manipSubmit').reached, true);
 });
 
-test('초과 크레딧 소멸', () => {
-  const g = fixedGame([true, false, false, false, false, true]);
-  const p = g.seats[0];
-  g.players[p].manip = 5;
-  assert.ok(E.applyAction(g, p, { type: 'manip', amount: 3, pair: 2 }).ok);
-  assert.strictEqual(g.players[p].manip, 0);
-  assert.strictEqual(g.players[p].credits, 13);
-  assert.strictEqual(g.events.find((e) => e.type === 'manip').wasted, 2);
+test('조작권을 얻은 제출로 크레딧이 0이 되어도 조작부터 하고, 그 뒤에 종료 판정', () => {
+  const g = fixedGame([false, false, true, false, true, false], 3);
+  g.players[g.seats[1]].credits = 0;
+  g.players[g.seats[2]].credits = 0;
+  g.players[g.seats[0]].credits = 1;
+  g.manipPool = 5;
+  assert.ok(E.applyAction(g, g.seats[0], { type: 'manip', amount: 1 }).manip);
+  assert.strictEqual(g.phase, 'playing'); // 아직 격발 전
+  assert.deepStrictEqual(E.availableActions(g, g.seats[0]), ['manipSwap']);
+  assert.ok(E.applyAction(g, g.seats[0], { type: 'manipSwap', pair: 2 }).ok); // 약실 3,4 교환 (실탄↔빈칸)
+  assert.strictEqual(g.phase, 'ended');
+  assert.deepStrictEqual(g.result.chambers, [false, false, false, true, true, false]);
 });
 
 test('3명 소진 시 즉시 종료 및 격발', () => {
@@ -177,8 +190,9 @@ test('라운드마다 선 플레이어가 시계방향으로 이동', () => {
 test('다른 사람의 비공개 행동 이후 내 정보는 stale 처리', () => {
   const g = fixedGame([true, true, false, false, false, false]);
   E.applyAction(g, g.seats[0], { type: 'publicCheck', pair: 0 });
-  g.players[g.seats[1]].manip = 3;
-  E.applyAction(g, g.seats[1], { type: 'manip', amount: 3, pair: 3 });
+  g.manipPool = 3;
+  E.applyAction(g, g.seats[1], { type: 'manip', amount: 3 });
+  E.applyAction(g, g.seats[1], { type: 'manipSwap', pair: 3 });
   const k = E.viewFor(g, g.seats[0]).knowledge;
   assert.strictEqual(k[0].stale, true);
   assert.strictEqual(E.viewFor(g, g.seats[1]).knowledge[0].stale, false);
