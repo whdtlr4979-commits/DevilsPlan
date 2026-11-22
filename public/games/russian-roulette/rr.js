@@ -10,7 +10,9 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const mod = (n, m) => ((n % m) + m) % m;
   const pairChs = (i) => [mod(i, N), mod(i + 1, N)];
-  const pairLabel = (i) => pairChs(i).map((c) => c + 1).join('·');
+  const CH = 'ABCDEF'; // 약실 이름 (A 가 총구 쪽 = 첫 번째 격발)
+  const chName = (k) => CH[mod(k, N)];
+  const pairLabel = (i) => pairChs(i).map(chName).join('·');
   const ls = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
@@ -315,21 +317,29 @@
     }
     if (phase === 'lobby') { stopAnim(); closeResult(); }
     if (game && game.currentPlayerId !== room.meId) clearSel();
-    // 내 제출로 공용 조작 풀이 찼다 → 바로 약실 선택 모드
-    if (game && game.me && game.me.pendingManip && S.sel.type !== 'manipSwap') {
+    // 내 제출로 공용 조작 풀이 찼다 → 약실 선택 화면 (취소 불가)
+    if (game && game.me && game.me.pendingManip && !(DEV.cur && DEV.cur.kind === 'select' && DEV.cur.act === 'manipSwap')) {
       clearSel();
-      S.sel.type = 'manipSwap';
+      openSelect('manipSwap');
       SFX.turn();
       buzz([60, 40, 60]);
     }
+    if (game && game.phase !== 'playing') closeDevice(true);
+    else if (DEV.cur && DEV.cur.kind === 'select' && game && game.currentPlayerId !== room.meId) closeDevice();
     S.prevPhase = phase;
 
-    // 효과음
+    // 효과음 + 조사 결과 팝업 (공개 조사는 모두에게, 비공개 조사는 본인에게만)
     if (game) {
-      const fresh = game.events.slice(S.lastEvCount);
+      const start = S.lastEvCount;
+      const fresh = game.events.slice(start);
       S.lastEvCount = game.events.length;
       if (fresh.some((e) => e.type === 'publicCheck' || (e.type === 'privateCheck' && e.mine))) SFX.reveal();
       else if (fresh.some((e) => e.type === 'private')) SFX.soft();
+      if (game.phase === 'playing') {
+        fresh.forEach((ev, i) => {
+          if (ev.type === 'publicCheck' || (ev.type === 'privateCheck' && ev.mine)) queueResult(game, ev, start + i);
+        });
+      }
     }
     const turnKey = game && game.phase === 'playing' && game.currentPlayerId === room.meId ? `${room.gameNo}:${game.turn}` : null;
     if (turnKey && turnKey !== S.lastTurnKey) { SFX.turn(); buzz([40, 60, 40]); }
@@ -470,7 +480,7 @@
     for (let k = 0; k < N; k++) {
       const [x, y] = pos(k, CH_R);
       h += `<g class="ch" data-ch="${k}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="ch-in">
-        <circle class="ring" r="35"/><circle class="hole" r="27"/><text class="num" y="8">${k + 1}</text></g></g>`;
+        <circle class="ring" r="35"/><circle class="hole" r="27"/><text class="num" y="8">${chName(k)}</text></g></g>`;
     }
     h += '<circle class="cyl-hub" cx="300" cy="300" r="17"/></g>';
     for (let s = 0; s < N; s++) {
@@ -501,7 +511,7 @@
 
   function needsPair(game) {
     const t = S.sel.type;
-    return t === 'publicCheck' || t === 'privateCheck' || t === 'manipSwap';
+    return false; // 약실 선택은 전용 선택 화면(단말기)에서
   }
 
   function updateBoard(game) {
@@ -573,7 +583,7 @@
       let sub;
       if (ended) sub = dead.has(seat.id) ? '탈락' : revealAll ? '생존' : '';
       else if (rp && !rp.connected) sub = '연결 끊김';
-      else sub = `약실 ${mod(s - game.aim, N) + 1}`;
+      else sub = `약실 ${chName(s - game.aim)}`;
       el.querySelector('.sub').textContent = sub;
       el.querySelector('.first').classList.toggle('hidden', ended || s !== game.firstSeat);
       el.querySelector('.tagme').classList.toggle('hidden', seat.id !== meId());
@@ -635,7 +645,7 @@
     const ended = game.phase === 'ended';
     const myTurn = !ended && game.currentPlayerId === meId();
     let mych;
-    if (!ended) mych = `<div class="mych"><span>내 약실</span><b class="${knowCls(game.knowledge[me.chamber])}">${me.chamber + 1}</b></div>`;
+    if (!ended) mych = `<div class="mych"><span>내 약실</span><b class="${knowCls(game.knowledge[me.chamber])}">${chName(me.chamber)}</b></div>`;
     else {
       const died = S.anim.done && game.result.eliminated.includes(me.id);
       mych = `<div class="mych"><span>결과</span><b class="${died ? 'loaded' : ''}">${S.anim.done ? (died ? '탈락' : '생존') : '…'}</b></div>`;
@@ -667,7 +677,7 @@
       body = `<div class="acts">${ACTS.map((a) => {
         const enabled = myTurn && game.actions.includes(a.key);
         return `<button class="act ${a.priv ? 'priv' : ''}" data-act="${a.key}" ${enabled ? '' : 'disabled'}>
-          <span class="cost">${a.cost}</span>${a.icon}<span class="lb">${a.lb}</span></button>`;
+          <span class="cost"><i class="sc">★</i>${a.cost}</span>${a.icon}<span class="lb">${a.lb}</span></button>`;
       }).join('')}</div>`;
     }
     dock.innerHTML = stats + body;
@@ -697,7 +707,7 @@
       const steps = sel.type === 'rotate1' ? 1 : 2;
       const newAim = mod(game.aim + steps, N);
       const myCh = mod(me.seat - newAim, N);
-      h += `<div class="step-hint">총구 → <b>${nm(game.seats[newAim].id)}</b> · 내 약실 <b>${myCh + 1}</b></div>`;
+      h += `<div class="step-hint">총구 → <b>${nm(game.seats[newAim].id)}</b> · 내 약실 <b>${chName(myCh)}</b></div>`;
       ready = true;
     } else if (sel.type === 'manip') {
       const r = game.rules;
@@ -725,8 +735,9 @@
     if (!b || b.disabled) return;
     if (b.dataset.act) {
       clearSel();
-      S.sel.type = b.dataset.act;
       SFX.select();
+      if (b.dataset.act === 'publicCheck' || b.dataset.act === 'privateCheck') return openSelect(b.dataset.act);
+      S.sel.type = b.dataset.act;
       renderGame();
       return;
     }
@@ -766,18 +777,26 @@
   }
 
   async function send(action) {
-    if (S.busy) return;
+    if (S.busy) return { ok: false };
     S.busy = true;
     const res = await emit('action', action);
     S.busy = false;
-    if (!res.ok) return toast(res.error, true);
+    if (!res.ok) {
+      toast(res.error, true);
+      return res;
+    }
     buzz(15);
     clearSel();
+    // 조작 크레딧을 냈는데 풀이 아직 안 찼다 → 누적 안내
+    if (action.type === 'manip' && !res.manip) {
+      showDevice({ kind: 'notice', title: '조작', headline: '조작 불가능', text: '크레딧이<br/>누적되었습니다' });
+    }
+    return res;
   }
 
   /* ---------- log ---------- */
 
-  const rchip = (c, y) => `<span class="r ${y ? 'y' : 'n'}">${c + 1}</span>`;
+  const rchip = (c, y) => `<span class="r ${y ? 'y' : 'n'}">${chName(c)} ${y ? 'O' : 'X'}</span>`;
 
   function evItem(ev, game) {
     const who = `<b>${nm(ev.by)}</b>`;
@@ -895,6 +914,145 @@
   });
 
   /* ------------------------------------------------------------ */
+  /* 단말기 팝업: 약실 선택 / 조사 결과 / 조작 안내                  */
+  /* ------------------------------------------------------------ */
+
+  const DEV = { cur: null, queue: [], timer: null };
+
+  /** 이벤트 시점의 총구 방향 (그 뒤에 회전이 있었어도 당시 기준으로 이름을 보여준다) */
+  function aimAt(game, idx) {
+    let aim = game.aim;
+    for (let i = 0; i <= idx && i < game.events.length; i++) {
+      const ev = game.events[i];
+      if (ev.type === 'start' || ev.type === 'rotate') aim = ev.aim;
+    }
+    return aim;
+  }
+
+  function queueResult(game, ev, idx) {
+    const aim = aimAt(game, idx);
+    const rows = pairChs(ev.pair).map((c, i) => ({ ch: c, name: nm(game.seats[mod(aim + c, N)].id), loaded: ev.results[i] }));
+    const pub = ev.type === 'publicCheck';
+    const item = {
+      kind: 'result',
+      title: pub ? '공개 조사 결과' : '비공개 조사 결과',
+      by: ev.by === meId() ? '' : `${nm(ev.by)}의 조사`,
+      rows,
+      auto: ev.by !== meId(), // 남의 공개 조사는 잠시 뒤 자동으로 닫힘
+    };
+    if (DEV.cur && DEV.cur.kind === 'select') DEV.queue.push(item);
+    else if (DEV.cur) DEV.queue.push(item);
+    else showDevice(item);
+  }
+
+  function openSelect(act) {
+    const g0 = g();
+    if (!g0) return;
+    const a = actByKey[act];
+    showDevice({ kind: 'select', act, picks: [], title: act === 'manipSwap' ? '조작' : a.name, cost: act === 'manipSwap' ? 0 : Number(a.cost) });
+  }
+
+  function showDevice(item) {
+    clearTimeout(DEV.timer);
+    DEV.cur = item;
+    renderDevice();
+    $('device').classList.remove('hidden');
+    if (item.kind === 'result' && item.auto) DEV.timer = setTimeout(() => closeDevice(), 4500);
+  }
+
+  function closeDevice(all) {
+    clearTimeout(DEV.timer);
+    if (all) DEV.queue = [];
+    DEV.cur = null;
+    const next = DEV.queue.shift();
+    if (next) return showDevice(next);
+    $('device').classList.add('hidden');
+  }
+
+  function cylinderSvg(game, picks) {
+    let h = `<svg class="dev-cyl" viewBox="0 0 300 300" aria-label="실린더">
+      <defs><radialGradient id="dsteel" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#5a5a68"/><stop offset=".55" stop-color="#2c2c36"/><stop offset="1" stop-color="#17171e"/></radialGradient></defs>
+      <circle cx="150" cy="150" r="112" fill="url(#dsteel)" stroke="#5a5a6a" stroke-width="3"/>`;
+    for (let k = 0; k < N; k++) {
+      const a = ((-90 + k * 60) * Math.PI) / 180;
+      const x = 150 + 64 * Math.cos(a);
+      const y = 150 + 64 * Math.sin(a);
+      const tx = 150 + 132 * Math.cos(a);
+      const ty = 150 + 132 * Math.sin(a);
+      const kn = game.knowledge[k];
+      const cls = ['dch', kn ? (kn.loaded ? 'loaded' : 'empty') : '', kn && kn.source === 'private' ? 'priv' : '', kn && kn.stale ? 'stale' : '', picks.includes(k) ? 'pick' : ''].join(' ');
+      h += `<g class="dtab" transform="translate(${tx.toFixed(1)} ${ty.toFixed(1)}) rotate(${k * 60})"><rect x="-17" y="-11" width="34" height="22" rx="4"/><text y="6" transform="rotate(${-k * 60})">${chName(k)}</text></g>`;
+      h += `<g class="${cls}" data-dch="${k}"><circle class="dglow" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="33"/><circle class="dhole" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="26"/></g>`;
+    }
+    return h + '<circle cx="150" cy="150" r="5" fill="#0b0b10"/></svg>';
+  }
+
+  function validPair(picks) {
+    if (picks.length !== 2) return null;
+    const [x, y] = picks;
+    if (mod(y - x, N) === 1) return x;
+    if (mod(x - y, N) === 1) return y;
+    return null;
+  }
+
+  function renderDevice() {
+    const d = DEV.cur;
+    const game = g();
+    if (!d || !game) return;
+    $('devTab').textContent = rawName(meId());
+    $('devTitle').textContent = d.title;
+    let body = '';
+    let actions = '';
+    if (d.kind === 'select') {
+      const pair = validPair(d.picks);
+      const names = d.picks.map((c) => `<b>${chName(c)}</b> ${nm(game.seats[mod(game.aim + c, N)].id)}`).join(' · ');
+      const w = game.me && game.me.pendingManip ? game.me.pendingManip.wasted : 0;
+      body = `${cylinderSvg(game, d.picks)}
+        <div class="dev-hint">${d.picks.length === 2 && pair == null ? '<span class="warn">서로 붙어 있는 약실을 고르세요</span>'
+          : d.picks.length ? names : d.act === 'manipSwap' ? '탄약을 바꿀 <b>붙어 있는 약실 2개</b>' : '조사할 <b>붙어 있는 약실 2개</b>'}</div>
+        ${d.act === 'manipSwap' ? `<div class="dev-sub">⚡ 공용 풀이 찼어요${w ? ` · 초과 ${w}크레딧 소멸` : ''}</div>` : `<div class="dev-cost">Credit Cost <span class="sc">★</span>×${d.cost}</div>`}`;
+      actions = `${d.act === 'manipSwap' ? '' : '<button class="btn" data-dev-cancel>취소</button>'}
+        <button class="btn btn-primary btn-lg" data-dev-ok ${pair == null ? 'disabled' : ''}>선택 완료</button>`;
+    } else if (d.kind === 'result') {
+      body = `${d.by ? `<div class="dev-sub">${d.by}</div>` : ''}<div class="dev-rows">${d.rows.map((r) => `
+        <div class="dev-row ${r.loaded ? 'hit' : ''}"><span class="hex">${chName(r.ch)}</span><span class="dn">${r.name}</span><span class="ox ${r.loaded ? 'o' : 'x'}">${r.loaded ? 'O' : 'X'}</span></div>`).join('')}</div>
+        <div class="dev-legend"><span class="ox o">O</span> 총알 있음 · <span class="ox x">X</span> 빈 약실</div>`;
+      actions = '<button class="btn btn-primary btn-lg" data-dev-close>확인</button>';
+    } else if (d.kind === 'notice') {
+      body = `<div class="dev-notice"><div class="dev-warn">!</div><div class="dev-head">${d.headline}</div><div class="dev-text">${d.text}</div></div>`;
+      actions = '<button class="btn btn-lg" data-dev-close>확인</button>';
+    }
+    $('devBody').innerHTML = body;
+    $('devActions').innerHTML = actions;
+  }
+
+  $('device').addEventListener('click', async (e) => {
+    const d = DEV.cur;
+    if (!d) return;
+    const chEl = e.target.closest('[data-dch]');
+    if (chEl && d.kind === 'select') {
+      const k = Number(chEl.dataset.dch);
+      const picks = d.picks;
+      if (picks.includes(k)) d.picks = picks.filter((x) => x !== k);
+      else if (picks.length === 0) d.picks = [k];
+      else if (picks.length === 1) d.picks = validPair([picks[0], k]) != null ? [picks[0], k] : [k];
+      else d.picks = [k];
+      SFX.select();
+      return renderDevice();
+    }
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    if (b.hasAttribute('data-dev-cancel') || b.hasAttribute('data-dev-close')) return closeDevice();
+    if (b.hasAttribute('data-dev-ok') && d.kind === 'select') {
+      const pair = validPair(d.picks);
+      if (pair == null) return;
+      const action = d.act === 'manipSwap' ? { type: 'manipSwap', pair } : { type: d.act, pair };
+      const res = await send(action);
+      if (res && res.ok && DEV.cur === d) closeDevice();
+    }
+  });
+
+  /* ------------------------------------------------------------ */
   /* end animation & result                                       */
   /* ------------------------------------------------------------ */
 
@@ -946,7 +1104,7 @@
     $('resultTitle').className = `result-title ${iDied ? 'dead' : 'alive'}`;
     $('resultTitle').textContent = iDied ? '탈락' : '생존';
     $('resultSub').innerHTML = `💀 ${res.eliminated.map((id) => nm(id)).join(', ')}`;
-    $('resultReveal').innerHTML = res.chambers.map((b, i) => `<span class="${b ? 'y' : ''}" style="animation-delay:${i * 80}ms">${i + 1}</span>`).join('');
+    $('resultReveal').innerHTML = res.chambers.map((b, i) => `<span class="${b ? 'y' : ''}" style="animation-delay:${i * 80}ms">${chName(i)}</span>`).join('');
     $('resultList').innerHTML = game.seats.map((s) => {
       const idx = order.indexOf(s.seat);
       return `<div class="rrow ${dead.has(s.id) ? 'dead' : ''}">
