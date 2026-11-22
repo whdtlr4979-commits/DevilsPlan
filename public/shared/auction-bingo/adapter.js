@@ -33,7 +33,7 @@
       if (g.phase === 'ended') return null;
       const due = [];
       if (g.phase === 'choose' || g.phase === 'bid') {
-        for (const id of g.order) {
+        for (const id of engine.active(g)) {
           const done = g.phase === 'choose' ? g.choices[id] : g.bids[id];
           if (done) continue;
           if (ctx.isBot(id)) due.push({ id, at: g.phaseAt + (g.botDelays[id] || ctx.opts.botDelay) });

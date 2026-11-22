@@ -184,23 +184,32 @@
       const rp = api.player(p.id) || {};
       const me = p.id === api.meId();
       let badge = '';
-      if (active) badge = p.submitted ? '<i class="pb ok">✓</i>' : '<i class="pb wait"><b></b><b></b><b></b></i>';
+      if (p.out) badge = '<i class="pb dead">💀</i>';
+      else if (active) badge = p.submitted ? '<i class="pb ok">✓</i>' : '<i class="pb wait"><b></b><b></b><b></b></i>';
       const choice = p.choice ? `<span class="pc">${shp(p.choice, 'fill')}</span>` : '';
-      return `<div class="pl ${me ? 'me' : ''} ${rp.connected === false ? 'off' : ''} ${active && p.submitted ? 'done' : ''}">
+      return `<div class="pl ${me ? 'me' : ''} ${rp.connected === false ? 'off' : ''} ${active && p.submitted ? 'done' : ''} ${p.out ? 'out' : ''}">
         <div class="pa">${rp.isBot ? '🤖' : esc(p.name.slice(0, 1))}${choice}${badge}</div>
         <div class="pn">${me ? '나' : esc(p.name)}</div></div>`;
     }).join('');
   }
 
   function waitingLine(game) {
-    const done = game.players.filter((p) => p.submitted).length;
-    return `<div class="ab-wait"><span class="dots"><i></i><i></i><i></i></span> 다른 플레이어를 기다리는 중 <b>${done}/${game.players.length}</b></div>`;
+    const alive = game.players.filter((p) => !p.out);
+    const done = alive.filter((p) => p.submitted).length;
+    return `<div class="ab-wait"><span class="dots"><i></i><i></i><i></i></span> 다른 플레이어를 기다리는 중 <b>${done}/${alive.length}</b></div>`;
+  }
+
+  /** 탈락했으면 관전 안내 */
+  function outPanel(game) {
+    const o = game.me.out;
+    if (!o) return '';
+    return `<div class="out-banner">💀 <b>R${o.round} 탈락</b> · ${o.why === 'nocoin' ? '코인이 없어 입찰하지 못했어요' : '1원 이상 입찰하지 못했어요'}<br/><span>남은 경기를 관전합니다</span></div>`;
   }
 
   function renderChoose(game) {
     const me = game.me;
-    const done = !!me.choice;
-    let h = `<div class="ab-q">${done ? '티켓을 넣었어요' : '어느 상자에 티켓을 넣을까?'}</div><div class="boxes">`;
+    const done = !!me.choice || !!me.out;
+    let h = `<div class="ab-q">${me.out ? '관전 중' : done ? '티켓을 넣었어요' : '어느 상자에 티켓을 넣을까?'}</div><div class="boxes">`;
     for (const s of SHAPES) {
       const on = (done ? me.choice : L.sel) === s;
       const who = game.players.filter((p) => p.choice === s);
@@ -210,7 +219,9 @@
         ${on && done ? '<span class="ticket">🎫</span>' : ''}</button>`;
     }
     h += '</div>';
-    h += done
+    h += me.out
+      ? outPanel(game) + waitingLine(game)
+      : done
       ? waitingLine(game)
       : `<button class="btn btn-primary btn-lg btn-block" data-choose ${L.sel ? '' : 'disabled'}>🎫 ${L.sel ? `${SHAPE_KO[L.sel]} 상자에 ` : ''}티켓 넣기</button>`;
     return h;
@@ -231,10 +242,11 @@
 
   function renderBid(game) {
     const me = game.me;
-    const s = me.choice;
-    const n = game.players.filter((p) => p.choice === s).length;
     let h = boxesSummary(game);
-    h += `<div class="ab-mine">${shp(s, 'fill')} <span>${n === 1 ? '혼자예요! <b>1원</b>만 내도 낙찰' : `낙찰되면 <b>${SHAPE_KO[s]} ×${n}</b> · 경쟁 ${n - 1}명`}</span></div>`;
+    if (me.out) return h + outPanel(game) + waitingLine(game);
+    const s = me.choice;
+    const n = game.players.filter((p) => p.choice === s && !p.out).length;
+    h += `<div class="ab-mine">${shp(s, 'fill')} <span>${n === 1 ? '혼자예요! <b>1원</b>만 내도 낙찰' : `낙찰되면 <b>${SHAPE_KO[s]} 최대 ×${n}</b> · 경쟁 ${n - 1}명`}</span></div>`;
     if (me.bid != null) {
       h += `<div class="ab-done">입찰 완료 <b>${me.bid}원</b></div>${waitingLine(game)}`;
       return h;
@@ -250,9 +262,12 @@
     h += `<div class="tray ${trayCoins.length ? '' : 'empty'}">
       <div class="tray-coins">${trayCoins.length ? trayCoins.map((v) => `<button class="tcoin" data-rem="${v}">${coinHtml(v, 'sm')}</button>`).join('') : '<span class="tray-hint">코인을 눌러 담으세요</span>'}</div>
       <div class="tray-total"><b>${total}</b>원</div></div>`;
-    h += `<div class="bid-row">
-      <button class="btn" data-bid0>포기</button>
-      <button class="btn btn-primary btn-lg" data-bid ${total ? '' : 'disabled'}>🔨 ${total}원 입찰</button></div>`;
+    const roundsLeftAfter = game.rounds - game.round; // 이번 입찰 뒤 남는 라운드
+    const coinsAfter = E.coinCount(me.coins) - E.coinCount(L.tray);
+    const warn = total && coinsAfter < roundsLeftAfter
+      ? `<div class="bid-warn">⚠ 코인 ${coinsAfter}개 남음 · 남은 라운드 ${roundsLeftAfter} · 탈락 위험!</div>`
+      : '<div class="bid-note">1원 이상 내지 못하면 <b>즉시 탈락</b></div>';
+    h += `<div class="bid-foot">${warn}<button class="btn btn-primary btn-lg btn-block" data-bid ${total ? '' : 'disabled'}>🔨 ${total ? `${total}원 입찰` : '코인을 담으세요'}</button></div>`;
     return h;
   }
 
@@ -271,11 +286,12 @@
       const info = h0.shapes[s];
       const mine = h0.myShape === s;
       h += `<div class="rcard box-${s} ${mine ? 'on' : ''} ${info.secret ? 'is-secret' : ''}">
-        ${shp(s, 'fill big')}<div class="r-count">${info.count}명</div>${priceHtml(info)}
-        ${mine ? `<div class="r-mine">내 입찰 ${h0.myBid}원</div>` : ''}</div>`;
+        ${shp(s, 'fill big')}<div class="r-count">${info.count}명 입찰</div>${priceHtml(info)}
+        ${mine ? `<div class="r-mine">${h0.eliminated.includes(api.meId()) ? '💀 입찰 실패' : `내 입찰 ${h0.myBid}원`}</div>` : ''}</div>`;
     }
     h += '</div>';
-    h += `<div class="ab-hint">누가 낙찰받았는지는 <b>비밀</b> · ${game.round >= game.rounds ? '곧 최종 공개!' : '곧 다음 라운드'}</div>`;
+    if (h0.eliminated.length) h += `<div class="out-line">💀 탈락: ${h0.eliminated.map((id) => `<b>${api.nm(id)}</b>`).join(', ')} <span class="dim">(1원 이상 입찰 실패)</span></div>`;
+    h += `<div class="ab-hint">누가 낙찰받았는지는 <b>비밀</b> · ${game.round >= game.rounds || game.players.every((p) => p.out) ? '곧 최종 공개!' : '곧 다음 라운드'}</div>`;
     return h;
   }
 
@@ -286,7 +302,7 @@
   function renderEnded(game) {
     const r = myRow(game);
     if (!r) return '<div class="ab-q">게임 종료</div>';
-    return `<div class="ab-q">${r.rank}위 · 내 빙고판</div>
+    return `<div class="ab-q">${r.rank}위 · 내 빙고판${r.out ? ' <span class="out-tag">탈락</span>' : ''}</div>
       ${boardHtml(r.cells, r.lines, 'big')}
       <div class="final-stats"><span><b>${r.lineCount}</b>빙고</span><span><b>${r.filled}</b>칸</span><span><b>${r.coinValue}</b>원 남음</span></div>
       <button class="btn btn-primary btn-lg btn-block" data-show-result>전체 결과 보기</button>`;
@@ -299,7 +315,7 @@
     $('abBar').innerHTML = `
       <button class="bar-board" data-mine aria-label="내 빙고판">${mini}<span>내 빙고판</span></button>
       <div class="bar-coins">💰<b>${me.coinValue}</b><small>원</small></div>
-      <div class="bar-tix">🎫 <b>${Math.max(0, me.tickets)}</b></div>
+      <div class="bar-tix">${me.out ? '💀' : `🎫 <b>${Math.max(0, me.tickets)}</b>`}</div>
       <button class="btn bar-btn" data-log>📜 기록</button>`;
   }
 
@@ -329,10 +345,6 @@
     } else if (b.hasAttribute('data-bid')) {
       const res = await api.act({ type: 'bid', coins: { ...L.tray } });
       if (res.ok) { api.SFX.drop(); L.tray = E.emptyCoins(); }
-      return;
-    } else if (b.hasAttribute('data-bid0')) {
-      if (!confirm('입찰을 포기할까요? (0원 · 이 상자에서 최하위)')) return;
-      await api.act({ type: 'bid', coins: E.emptyCoins() });
       return;
     } else if (b.hasAttribute('data-show-result')) {
       return showResult();
@@ -385,7 +397,12 @@
     if (!game.history.length) h += '<div class="empty-note">아직 기록이 없어요</div>';
     game.history.forEach((hh) => {
       const s = hh.myShape;
+      if (!s) return; // 탈락 뒤 라운드
       const info = hh.shapes[s];
+      if (hh.eliminated.includes(api.meId())) {
+        h += `<div class="mrow out"><span class="mr-r">R${hh.round}</span>${shp(s, 'fill')}<span class="mr-b">💀 입찰 실패 · 탈락</span></div>`;
+        return;
+      }
       let guess = '';
       if (info.status === 'sold' && info.price != null) guess = hh.myBid === info.price ? '<span class="tag win">최고가 = 내 입찰</span>' : '<span class="tag lose">밀림</span>';
       else if (info.secret) guess = '<span class="tag">?</span>';
@@ -403,9 +420,10 @@
     const ended = game.phase === 'ended';
     for (const hh of game.history) {
       items.push({ cls: 'round', html: `ROUND ${hh.round}` });
-      items.push({ html: SHAPES.map((s) => `${SYM[s]} ${hh.shapes[s].count}명`).join(' · ') });
+      items.push({ html: SHAPES.map((s) => `${SYM[s]} ${hh.shapes[s].count}명 입찰`).join(' · ') });
       items.push({ html: SHAPES.map((s) => `${SYM[s]} <b>${priceText(hh.shapes[s])}</b>`).join(' · ') });
-      items.push({ cls: 'mine', html: `내 선택 ${SYM[hh.myShape]} · 입찰 ${hh.myBid}원` });
+      if (hh.myShape) items.push({ cls: 'mine', html: hh.eliminated.includes(api.meId()) ? `내 선택 ${SYM[hh.myShape]} · 💀 입찰 실패로 탈락` : `내 선택 ${SYM[hh.myShape]} · 입찰 ${hh.myBid}원` });
+      if (hh.eliminated.length) items.push({ cls: 'end', html: `💀 탈락: ${hh.eliminated.map((id) => `<b>${api.nm(id)}</b>`).join(', ')}` });
       if (ended) {
         SHAPES.forEach((s) => {
           const info = hh.shapes[s];
@@ -436,12 +454,12 @@
     $('result').classList.toggle('win', !!(r && r.rank <= Math.ceil(rows.length / 2)));
     $('resultTitle').className = `result-title ${win ? 'gold' : r && r.rank <= Math.ceil(rows.length / 2) ? 'alive' : 'dead'}`;
     $('resultTitle').textContent = r ? `${r.rank}위` : '종료';
-    $('resultSub').innerHTML = r ? `${r.lineCount}빙고 · ${r.filled}칸 · ${r.coinValue}원 남음` : '';
+    $('resultSub').innerHTML = r ? (r.out ? `💀 R${r.out.round}에 탈락 · 빙고판은 참고용` : `${r.lineCount}빙고 · ${r.filled}칸 · ${r.coinValue}원 남음`) : '';
     $('resultBoard').innerHTML = r ? boardHtml(r.cells, r.lines, 'mid') : '';
     $('resultList').innerHTML = rows.map((x) => `<div class="rrow ${x.id === api.meId() ? 'me' : ''} ${x.rank === 1 ? 'first' : ''}">
         <span class="rk">${x.rank === 1 ? '🏆' : x.rank}</span>${boardHtml(x.cells, x.lines, 'tiny')}
         <span class="nm">${api.nm(x.id)}<small>${SHAPES.map((s) => `${SYM[s]}${x.won[s]}`).join(' ')}</small></span>
-        <span class="info"><b>${x.lineCount}</b>빙고 · ${x.filled}칸</span><span class="cr">${x.coinValue}원</span></div>`).join('');
+        <span class="info">${x.out ? `<b class="out-tag">💀 R${x.out.round} 탈락</b>` : `<b>${x.lineCount}</b>빙고 · ${x.filled}칸`}</span><span class="cr">${x.coinValue}원</span></div>`).join('');
     $('resultActions').innerHTML =
       (api.isHost() ? '<button class="btn btn-primary btn-lg btn-block" id="btnLobby">한 판 더!</button>' : '<div class="waiting">방장이 다음 판을 준비해요<i>.</i><i>.</i><i>.</i></div>') +
       '<button class="btn btn-block" data-close-result>닫기</button>';
@@ -466,8 +484,9 @@
   function lobbyExtra(room, el, a) {
     const cur = room.settings.timer;
     const host = a.isHost();
-    el.innerHTML = `<div class="set-row"><span class="set-label">⏱ 제한 시간</span><div class="set-seg">${Object.entries(E.TIMER_PRESETS).map(([k, t]) =>
-      `<button class="${k === cur ? 'on' : ''}" data-timer="${k}" ${host ? '' : 'disabled'}><b>${t.label}</b><small>${t.choose < 60 ? `${t.choose}초` : `${t.choose / 60}분`} / ${t.bid < 60 ? `${t.bid}초` : `${t.bid / 60}분`}</small></button>`).join('')}</div></div>`;
+    const fmt = (sec) => (sec < 60 ? `${sec}초` : `${Math.floor(sec / 60)}분${sec % 60 ? `${sec % 60}초` : ''}`);
+    el.innerHTML = `<div class="set-row"><span class="set-label">⏱ 제한 시간 (선택 / 입찰)</span><div class="set-seg">${Object.entries(E.TIMER_PRESETS).map(([k, t]) =>
+      `<button class="${k === cur ? 'on' : ''}" data-timer="${k}" ${host ? '' : 'disabled'}><b>${t.label}</b><small>${fmt(t.choose)}<br/>${fmt(t.bid)}</small></button>`).join('')}</div></div>`;
   }
 
   $('lobbyExtra').addEventListener('click', async (e) => {

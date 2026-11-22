@@ -42,19 +42,26 @@
   function decideChoice(state, pid, rng = Math.random) {
     const est = estimateHoldings(state, pid);
     // 이미 공개된 선택을 보고, 사람이 몰린 상자는 조금 피한다
-    const crowd = (s) => state.order.filter((id) => state.choices[id] === s).length;
+    const crowd = (s) => E.active(state).filter((id) => state.choices[id] === s).length;
     const weights = SHAPES.map((s) => (Math.max(0, 3 - est[s]) + 0.35) / (1 + 0.25 * crowd(s)));
     return { type: 'choose', shape: SHAPES[pickWeighted(weights, rng)] };
   }
 
-  /** 목표 금액 이상이 되는 가장 작은 코인 조합 (없으면 전부) */
-  function coinsFor(have, target) {
+  /**
+   * 목표 금액 이상이 되는 가장 작은 코인 조합. 코인은 최대 maxCount 개까지만 쓴다 (다음 라운드용으로 남겨 둠).
+   * 목표에 못 미치면 쓸 수 있는 범위에서 가장 큰 조합. 항상 1개 이상.
+   */
+  function coinsFor(have, target, maxCount = Infinity) {
     let best = null;
+    let most = null;
     const rec = (i, cur, sum) => {
       if (i === COIN_VALUES.length) {
-        if (sum >= target && (!best || sum < best.sum || (sum === best.sum && E.coinCount(cur) < E.coinCount(best.coins)))) {
+        const cnt = E.coinCount(cur);
+        if (cnt < 1 || cnt > maxCount) return;
+        if (sum >= target && (!best || sum < best.sum || (sum === best.sum && cnt < E.coinCount(best.coins)))) {
           best = { coins: { ...cur }, sum };
         }
+        if (!most || sum > most.sum) most = { coins: { ...cur }, sum };
         return;
       }
       const v = COIN_VALUES[i];
@@ -65,7 +72,9 @@
       cur[v] = 0;
     };
     rec(0, E.emptyCoins(), 0);
-    return best ? best.coins : { ...have };
+    if (best) return best.coins;
+    if (most) return most.coins;
+    return E.emptyCoins();
   }
 
   function decideBid(state, pid, rng = Math.random) {
@@ -73,7 +82,7 @@
     const wallet = E.coinValue(p.coins);
     if (wallet === 0) return { type: 'bid', coins: E.emptyCoins() };
     const shape = state.choices[pid];
-    const n = state.order.filter((id) => state.choices[id] === shape).length;
+    const n = E.active(state).filter((id) => state.choices[id] === shape).length;
     const rivals = n - 1;
     const roundsLeft = ROUNDS - state.round + 1;
     const need = Math.max(0, 3 - estimateHoldings(state, pid)[shape]);
@@ -86,7 +95,9 @@
       if (roundsLeft === 1) target *= 1.3;
     }
     target = Math.max(1, Math.min(wallet, Math.round(target)));
-    return { type: 'bid', coins: coinsFor(p.coins, target) };
+    // 매 라운드 1원 이상 내야 살아남으므로, 남은 라운드 수만큼 코인 개수를 남겨 둔다
+    const maxCount = Math.max(1, E.coinCount(p.coins) - (roundsLeft - 1));
+    return { type: 'bid', coins: coinsFor(p.coins, target, maxCount) };
   }
 
   return { estimateHoldings, decideChoice, decideBid, coinsFor };
