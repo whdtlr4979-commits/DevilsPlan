@@ -414,12 +414,13 @@
     $('mineBody').innerHTML = h;
   }
 
+  /** 기록: 최신 라운드가 위, 라운드 제목은 항상 그 라운드 내용 위 */
   function logItems(room) {
     const game = room.game;
-    const items = [];
     const ended = game.phase === 'ended';
+    const groups = [];
     for (const hh of game.history) {
-      items.push({ cls: 'round', html: `ROUND ${hh.round}` });
+      const items = [{ cls: 'round', html: `ROUND ${hh.round}` }];
       items.push({ html: SHAPES.map((s) => `${SYM[s]} ${hh.shapes[s].count}명 입찰`).join(' · ') });
       items.push({ html: SHAPES.map((s) => `${SYM[s]} <b>${priceText(hh.shapes[s])}</b>`).join(' · ') });
       if (hh.myShape) items.push({ cls: 'mine', html: hh.eliminated.includes(api.meId()) ? `내 선택 ${SYM[hh.myShape]} · 💀 입찰 실패로 탈락` : `내 선택 ${SYM[hh.myShape]} · 입찰 ${hh.myBid}원` });
@@ -432,12 +433,13 @@
           }
         });
       }
+      groups.push(items);
     }
     if (game.phase === 'choose' || game.phase === 'bid') {
-      items.push({ cls: 'round', html: `ROUND ${game.round} 진행 중 · ${phaseLabel[game.phase]}` });
+      groups.push([{ cls: 'round', html: `ROUND ${game.round} 진행 중 · ${phaseLabel[game.phase]}` }]);
     }
-    if (ended) items.push({ cls: 'end', html: '🏁 게임 종료 · 모든 정보 공개' });
-    return items.reverse();
+    if (ended) groups.push([{ cls: 'end', html: '🏁 게임 종료 · 모든 정보 공개' }]);
+    return groups.reverse().flat();
   }
 
   /* ------------------------------------------------------------ */
