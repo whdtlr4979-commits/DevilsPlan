@@ -9,7 +9,7 @@
  *    create(players, settings, now)   새 게임 상태
  *    isEnded(state)
  *    view(state, viewerId, now)       플레이어별 화면 (정보 은닉은 어댑터 책임)
- *    act(state, playerId, action, now) → {ok} | {ok:false, error}
+ *    act(state, playerId, action, now, ctx) → {ok} | {ok:false, error}
  *    next(state, ctx)                 다음 자동 진행 {at, run() → changed?} | null (봇, 시간 초과 등)
  *    startMessage(state), endMessage(state)
  *  }
@@ -359,7 +359,7 @@
         }
         case 'action': {
           if (!this.game) return fail('게임을 찾을 수 없습니다.');
-          const res = this.adapter.act(this.game, player.id, payload, Date.now());
+          const res = this.adapter.act(this.game, player.id, payload, Date.now(), this.ctx());
           if (res.ok) this.changed();
           return res;
         }
