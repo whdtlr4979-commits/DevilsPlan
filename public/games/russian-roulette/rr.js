@@ -325,6 +325,10 @@
       buzz([60, 40, 60]);
     }
     if (game && game.phase !== 'playing') closeDevice(true);
+    else if (DEV.cur && DEV.cur.kind === 'result' && DEV.cur.ackTurn != null) {
+      if (!game.ack || game.ack.turn !== DEV.cur.ackTurn) closeDevice(); // 모두 확인 / 시간 초과 → 넘어감
+      else renderDevice(); // 확인 인원 갱신
+    }
     else if (DEV.cur && DEV.cur.kind === 'select' && game && game.currentPlayerId !== room.meId) closeDevice();
     S.prevPhase = phase;
 
@@ -450,6 +454,7 @@
   function renderTurnbar(game) {
     let status;
     if (game.phase === 'ended') status = `<div class="tb-status over">${S.anim.done ? '게임 종료' : '💥 격발'}</div>`;
+    else if (game.ack) status = '<div class="tb-status">🔍 공개 조사 결과 확인 중</div>';
     else if (game.currentPlayerId === meId()) status = '<div class="tb-status me">🔥 내 차례</div>';
     else status = `<div class="tb-status">${nm(game.currentPlayerId)} <span class="think"><i></i><i></i><i></i></span></div>`;
     $('turnbar').innerHTML = `<div class="tb-round">ROUND ${game.round}</div>${status}`;
@@ -544,14 +549,8 @@
       if (game.result && (revealAll || fired.has(k))) {
         cls.push(game.result.chambers[k] ? 'loaded' : 'empty');
       } else {
-        const kn = game.knowledge[k];
-        if (kn) {
-          cls.push(kn.loaded ? 'loaded' : 'empty');
-          if (kn.source === 'private') cls.push('priv');
-          if (kn.stale) cls.push('stale');
-        }
+        if (pubBullet(game.knowledge[k])) cls.push('loaded'); // 공개 조사로 확인된 총알만 표시
       }
-      if (game.me && !ended && k === game.me.chamber) cls.push('mine');
       if (picking) {
         cls.push('pick');
         if (pend === k) cls.push('pending');
@@ -572,7 +571,6 @@
       const cls = ['seat'];
       if (seat.id === meId()) cls.push('me');
       if (!ended && s === game.currentSeat) cls.push('turn');
-      if (!ended && s === game.aim) cls.push('aimed');
       if (rp && !rp.connected) cls.push('off');
       if (dead.has(seat.id)) cls.push('dead');
       if (current && current.seat === s) cls.push('firing');
@@ -632,9 +630,12 @@
 
   /* ---------- dock ---------- */
 
+  /** 공개 조사로 확인된 총알인가 (비공개 조사·빈 약실·불확실 표시는 보드에 그리지 않는다) */
+  function pubBullet(kn) {
+    return !!kn && kn.source === 'public' && kn.loaded;
+  }
   function knowCls(kn) {
-    if (!kn) return '';
-    return (kn.loaded ? 'loaded' : 'empty') + (kn.stale ? ' stale' : '');
+    return pubBullet(kn) ? 'loaded' : '';
   }
 
   function renderDock(game) {
@@ -938,7 +939,9 @@
       title: pub ? '공개 조사 결과' : '비공개 조사 결과',
       by: ev.by === meId() ? '' : `${nm(ev.by)}의 조사`,
       rows,
-      auto: ev.by !== meId(), // 남의 공개 조사는 잠시 뒤 자동으로 닫힘
+      // 공개 조사: 모두 확인하거나 5초가 지나면 서버가 넘김. 비공개 조사: 내 화면만 5초 뒤 닫힘
+      ackTurn: pub && game.ack && game.ack.turn === ev.turn ? ev.turn : null,
+      until: Date.now() + (pub && game.ack && game.ack.turn === ev.turn ? game.ack.remainingMs : 5000),
     };
     if (DEV.cur && DEV.cur.kind === 'select') DEV.queue.push(item);
     else if (DEV.cur) DEV.queue.push(item);
@@ -957,7 +960,10 @@
     DEV.cur = item;
     renderDevice();
     $('device').classList.remove('hidden');
-    if (item.kind === 'result' && item.auto) DEV.timer = setTimeout(() => closeDevice(), 4500);
+    if (item.kind === 'result') {
+      // 확인 대기 카드는 서버가 넘기면 닫히지만, 혹시 몰라 시간이 지나면 스스로도 닫는다
+      DEV.timer = setTimeout(() => DEV.cur === item && closeDevice(), Math.max(0, item.until - Date.now()) + (item.ackTurn != null ? 1500 : 0));
+    }
   }
 
   function closeDevice(all) {
@@ -969,21 +975,36 @@
     $('device').classList.add('hidden');
   }
 
+  setInterval(() => {
+    const d = DEV.cur;
+    const el = document.getElementById('devLeft');
+    if (!d || d.kind !== 'result' || !el) return;
+    el.textContent = leftText(d);
+  }, 200);
+
+  /** 선택용 실린더: 메인 보드와 같은 배치 (각 약실이 격발될 플레이어 쪽), 약실 안에 A~F, 밖에 플레이어 이름 */
   function cylinderSvg(game, picks) {
-    let h = `<svg class="dev-cyl" viewBox="0 0 300 300" aria-label="실린더">
+    let h = `<svg class="dev-cyl" viewBox="-30 -30 360 360" aria-label="실린더">
       <defs><radialGradient id="dsteel" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#5a5a68"/><stop offset=".55" stop-color="#2c2c36"/><stop offset="1" stop-color="#17171e"/></radialGradient></defs>
-      <circle cx="150" cy="150" r="112" fill="url(#dsteel)" stroke="#5a5a6a" stroke-width="3"/>`;
+      <circle cx="150" cy="150" r="104" fill="url(#dsteel)" stroke="#5a5a6a" stroke-width="3"/>`;
     for (let k = 0; k < N; k++) {
-      const a = ((-90 + k * 60) * Math.PI) / 180;
-      const x = 150 + 64 * Math.cos(a);
-      const y = 150 + 64 * Math.sin(a);
-      const tx = 150 + 132 * Math.cos(a);
-      const ty = 150 + 132 * Math.sin(a);
-      const kn = game.knowledge[k];
-      const cls = ['dch', kn ? (kn.loaded ? 'loaded' : 'empty') : '', kn && kn.source === 'private' ? 'priv' : '', kn && kn.stale ? 'stale' : '', picks.includes(k) ? 'pick' : ''].join(' ');
-      h += `<g class="dtab" transform="translate(${tx.toFixed(1)} ${ty.toFixed(1)}) rotate(${k * 60})"><rect x="-17" y="-11" width="34" height="22" rx="4"/><text y="6" transform="rotate(${-k * 60})">${chName(k)}</text></g>`;
-      h += `<g class="${cls}" data-dch="${k}"><circle class="dglow" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="33"/><circle class="dhole" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="26"/></g>`;
+      const seat = mod(game.aim + k, N);
+      const a = ((-90 + seat * 60) * Math.PI) / 180;
+      const x = 150 + 60 * Math.cos(a);
+      const y = 150 + 60 * Math.sin(a);
+      const nx = 150 + 146 * Math.cos(a);
+      const ny = 150 + 146 * Math.sin(a);
+      const pid = game.seats[seat].id;
+      const label = pid === meId() ? '나' : rawName(pid).length > 5 ? rawName(pid).slice(0, 4) + '…' : rawName(pid);
+      const cls = ['dch', pubBullet(game.knowledge[k]) ? 'loaded' : '', picks.includes(k) ? 'pick' : ''].join(' ');
+      h += `<g class="dname ${pid === meId() ? 'me' : ''}"><rect x="${(nx - 36).toFixed(1)}" y="${(ny - 14).toFixed(1)}" width="72" height="28" rx="14"/><text x="${nx.toFixed(1)}" y="${(ny + 6).toFixed(1)}">${esc(label)}</text></g>`;
+      h += `<g class="${cls}" data-dch="${k}"><circle class="dglow" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="31"/><circle class="dhole" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="25"/><text class="dlt" x="${x.toFixed(1)}" y="${(y + 8).toFixed(1)}">${chName(k)}</text></g>`;
     }
+    // 총구 방향 표시 (A 약실 쪽)
+    const am = ((-90 + game.aim * 60) * Math.PI) / 180;
+    const mx = 150 + 112 * Math.cos(am);
+    const my = 150 + 112 * Math.sin(am);
+    h += `<polygon class="dmuzzle" points="0,-12 -10,6 10,6" transform="translate(${mx.toFixed(1)} ${my.toFixed(1)}) rotate(${game.aim * 60})"/>`;
     return h + '<circle cx="150" cy="150" r="5" fill="#0b0b10"/></svg>';
   }
 
@@ -1015,15 +1036,32 @@
         <button class="btn btn-primary btn-lg" data-dev-ok ${pair == null ? 'disabled' : ''}>선택 완료</button>`;
     } else if (d.kind === 'result') {
       body = `${d.by ? `<div class="dev-sub">${d.by}</div>` : ''}<div class="dev-rows">${d.rows.map((r) => `
-        <div class="dev-row ${r.loaded ? 'hit' : ''}"><span class="hex">${chName(r.ch)}</span><span class="dn">${r.name}</span><span class="ox ${r.loaded ? 'o' : 'x'}">${r.loaded ? 'O' : 'X'}</span></div>`).join('')}</div>
+        <div class="dev-row ${r.loaded ? 'hit' : ''} ${d.shown ? '' : 'in'}"><span class="hex">${chName(r.ch)}</span><span class="dn">${r.name}</span><span class="ox ${r.loaded ? 'o' : 'x'}">${r.loaded ? 'O' : 'X'}</span></div>`).join('')}</div>
         <div class="dev-legend"><span class="ox o">O</span> 총알 있음 · <span class="ox x">X</span> 빈 약실</div>`;
-      actions = '<button class="btn btn-primary btn-lg" data-dev-close>확인</button>';
+      if (d.ackTurn != null) {
+        const ack = game.ack && game.ack.turn === d.ackTurn ? game.ack : null;
+        const need = S.room.players.filter((p) => !p.isBot && p.connected);
+        const done = ack ? need.filter((p) => ack.acked.includes(p.id)).length : need.length;
+        const mine = ack && ack.acked.includes(meId());
+        body += `<div class="dev-count"><span id="devLeft">${leftText(d)}</span> · 확인 ${done}/${need.length}</div>`;
+        actions = mine
+          ? '<button class="btn btn-lg" disabled>다른 플레이어 기다리는 중…</button>'
+          : '<button class="btn btn-primary btn-lg" data-dev-ack>확인</button>';
+      } else {
+        body += `<div class="dev-count"><span id="devLeft">${leftText(d)}</span></div>`;
+        actions = '<button class="btn btn-primary btn-lg" data-dev-close>확인</button>';
+      }
     } else if (d.kind === 'notice') {
       body = `<div class="dev-notice"><div class="dev-warn">!</div><div class="dev-head">${d.headline}</div><div class="dev-text">${d.text}</div></div>`;
       actions = '<button class="btn btn-lg" data-dev-close>확인</button>';
     }
     $('devBody').innerHTML = body;
     $('devActions').innerHTML = actions;
+    d.shown = true; // 다시 그릴 때는 등장 애니메이션 없이
+  }
+
+  function leftText(d) {
+    return `⏱ ${Math.max(0, Math.ceil((d.until - Date.now()) / 1000))}초 뒤 자동으로 넘어가요`;
   }
 
   $('device').addEventListener('click', async (e) => {
@@ -1043,6 +1081,12 @@
     const b = e.target.closest('button');
     if (!b || b.disabled) return;
     if (b.hasAttribute('data-dev-cancel') || b.hasAttribute('data-dev-close')) return closeDevice();
+    if (b.hasAttribute('data-dev-ack')) {
+      b.disabled = true;
+      const res = await emit('action', { type: 'ack' });
+      if (!res.ok) closeDevice(); // 이미 넘어감
+      return;
+    }
     if (b.hasAttribute('data-dev-ok') && d.kind === 'select') {
       const pair = validPair(d.picks);
       if (pair == null) return;

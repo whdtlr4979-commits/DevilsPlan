@@ -260,8 +260,9 @@
 
 /* 조사 결과 */
 .dev-rows { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-.dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--stroke-2); animation: pop .3s ease-out backwards; }
-.dev-row:nth-child(2) { animation-delay: .1s; }
+.dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--stroke-2); }
+.dev-row.in { animation: pop .3s ease-out backwards; }
+.dev-row.in:nth-child(2) { animation-delay: .1s; }
 .dev-row.hit { background: linear-gradient(90deg, rgba(255,46,77,.32), rgba(255,46,77,.12)); border-color: rgba(255,46,77,.6); }
 .hex { width: 34px; height: 30px; flex: none; display: grid; place-items: center; font-family: var(--display); font-size: 17px; color: #2a1b00;
   background: linear-gradient(180deg, #ffd56b, #f0a91c); clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
@@ -286,3 +287,14 @@
 /* 행동 타일 비용 배지: ★ + 숫자 한 줄 */
 .act .cost { display: inline-flex; align-items: center; gap: 1px; padding: 0 6px 0 3px; white-space: nowrap; }
 .act .cost .sc { width: 13px; height: 13px; font-size: 8px; margin: 0; vertical-align: 0; box-shadow: none; background: #a86a00; color: var(--gold); text-shadow: none; }
+
+/* 선택용 실린더 v2: 약실 안 알파벳, 밖에 플레이어 이름, 메인 보드와 같은 배치 */
+.dev-cyl { width: min(290px, 78vw); }
+.dname rect { fill: rgba(255,255,255,.06); stroke: var(--stroke-2); stroke-width: 1.5; }
+.dname text { fill: var(--text-2); font-family: var(--font); font-size: 15px; font-weight: 800; text-anchor: middle; }
+.dname.me rect { fill: var(--gold-soft); stroke: var(--gold); }
+.dname.me text { fill: var(--gold); }
+.dch .dlt { fill: #d9d8e6; font-family: var(--display); font-size: 22px; text-anchor: middle; pointer-events: none; }
+.dch.loaded .dlt, .dch.pick .dlt { fill: #fff; }
+.dmuzzle { fill: var(--red); filter: drop-shadow(0 0 6px var(--red)); }
+.dev-count { font-size: 12.5px; color: var(--text-3); font-weight: 700; text-align: center; min-height: 18px; }
